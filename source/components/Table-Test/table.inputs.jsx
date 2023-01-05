@@ -9,10 +9,10 @@ const TableInputsReducer = ( state, [ type, data ], props ) => {
 
 		if( data.key ){
 			let line = data.list.find(( item ) => item.id === data.key );
-			console.log(data.value, "line", "reconstruct" );
 
 			for( const headerRow of data.header ){
 				keyValue[ headerRow.key ] = line ? line[ headerRow.key ] : "";
+				console.log(keyValue[ headerRow.key ], "line", "reconstruct" );
 			}
 		}else{
 			for( const headerRow of data.header ){
@@ -96,7 +96,7 @@ export const TableInputs = ( props ) =>{
 				</div>
 
 				<p className={"table-inp-add"} onClick={() => reducer([ "add", state.keyValue ]) }>Add</p>
-				<p className={"table-inp-add"} onClick={() => reducer([ "editRow", { key: selectedKey, values: state.keyValue }]) }>Change</p>
+				<p className={"table-inp-add"} onClick={() => reducer([ "changeValue", { key: selectedKey, value: state.keyValue }]) }>Change</p>
 			</div>
 		</div>
 	);

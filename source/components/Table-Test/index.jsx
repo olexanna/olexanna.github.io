@@ -38,12 +38,12 @@ const TableRTestReducer = ( state, [ type, data ] ) => {
 		}
 	}
 
-	if( type === "editRow" ){
+	if( type === "changeValue" ){
 		let list = [ ...state.list ];
 		let index = list.findIndex(( item ) => item.id === data.key );
 
 		if( index > -1 )
-			list[ index ] = { ...list[ index ],  ...data.values };
+			list[ index ] = { ...list[ index ],  ...data.value };
 
 		return {
 			...state,

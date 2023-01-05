@@ -36,17 +36,43 @@
 		justify-content: space-evenly;
 		font-family: "Roboto";
 		font-size: 15px;
+		margin-bottom: 8px;
 
 		&-cell{
 			position: relative;
-			padding: 5px;
+			padding: 3px;
 			display: flex;
 			width: 12%;
 			justify-content: center;
-			background: #d2caff;
+			align-items: center;
+			background: #d5ceff;
 			border-radius: 10px;
 			margin-right: 10px;
 		}
+	}
+
+	&-remove{
+		position: relative;
+		background: #5c2756;
+		color: white;
+		padding: 5px 5px 5px 5px;
+		border-radius: 10px;
+	}
+	&-remove:hover{
+		transition: 0.2s;
+		background: #44143f;
+	}
+
+	&-edit{
+		position: relative;
+		background: #32275c;
+		color: white;
+		padding: 5px 5px 5px 5px;
+		border-radius: 10px;
+	}
+	&-edit:hover{
+		transition: 0.2s;
+		background: #271d4c;
 	}
 }
 
@@ -72,17 +98,33 @@
 		text-shadow: 0px 0px 0px #615b85;
 	}
 
-	&-add{
+	&-btn-block{
 		position: relative;
-		background: #762E8F;
 		display: flex;
-		align-self: center;
-		padding: 4px 20px 4px 20px;
-		color: white;
-		border-radius: 10px;
-		cursor: pointer;
-		font-family: 'Roboto';
-		border: 1px solid #814197;
+	}
+
+
+	&-btn{
+		 position: relative;
+		 background: #762E8F;
+		 display: flex;
+		 align-self: center;
+		 padding: 4px 20px 4px 20px;
+		 color: white;
+		 border-radius: 10px;
+		 cursor: pointer;
+		 font-family: 'Roboto';
+		 border: 1px solid #814197;
+	}
+
+	.btn-add{
+		background: #762E8F;
+	}
+	.btn-change{
+		background: #1a4634;
+		margin-left: 4px;
+		padding: 4px 9px 4px 10px;
+		border: 1px solid #1b4c38;
 	}
 }
 

@@ -13,7 +13,6 @@ if( type==="add" ){
 			...data,
 			id: Math.floor( Math.random() *  100000.0 )
 		});
-
 		console.log(list, "action:add");
 		return {
 			...state,
@@ -28,6 +27,28 @@ if( type==="add" ){
 			...state,
 			list: list
 		};
+	}
+
+	if( type === "edit" ){
+		console.log(data.key, "edit");
+
+		return {
+			...state,
+			selectedKey : data.key,
+		};
+	}
+
+	if( type === "changeData" ){
+		let list = [ ...state.list ];
+		let index = list.findIndex(( item ) => item.id === data.key );
+
+		if( index > -1 )
+			list[ index ] = data.value;
+		console.log(list[ index ], "changeData");
+		return {
+			...state,
+			list: list
+		}
 	}
 
 	return state
@@ -45,12 +66,13 @@ export const Table = (props) => {
 			{id:"4", placeholder:"password", title: "password",  value: "", key:"password"},
 			{ id:"5", placeholder:"", title: "actions",key: "actions", type: "actions" }
 		],
-		list:[]
+		list:[],
+		selectedKey: null
 	});
 
 	return(
 		<section className={"table"}>
-			<TableInputs inputs={state.row} list={ state.list }  reducer={dispatch}/>
+			<TableInputs inputs={state.row} list={ state.list }  reducer={dispatch} selectedKey={ state.selectedKey }/>
 			<TableTitles tableTitles={state.row}/>
 			<TableBody row={state.row} list={state.list}  reducer={dispatch}/>
 		</section>

@@ -15,8 +15,8 @@ export const RowCell = (props) => {
 
 			return (
 				<div className={ "table-row-acts" }>
-					<div className={ "table-row-acts-item" } onClick={ () => reducer([ "remove", { id: id } ])}> remove </div>
-					<div className={ "table-row-acts-item" } onClick={ () => reducer([ "edit", { key: rowKey } ])}> edit </div>
+					<p className={ "table-row-acts-item table-remove" } onClick={ () => reducer([ "remove", { id: id } ])}> remove </p>
+					<p className={ "table-row-acts-item table-edit" } onClick={ () => reducer([ "edit", { key: rowKey } ])}> edit </p>
 				</div>
 			);
 		}else{
@@ -25,6 +25,6 @@ export const RowCell = (props) => {
 	}, [ value, type ]);
 
 	return(
-		<div className={"table-row-cell"}>{ result }</div>
+		<div className={"table-row-cell" + (type === "actions" ? " background-unset": " ")}>{ result }</div>
 	)
 };

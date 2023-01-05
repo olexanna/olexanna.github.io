@@ -10,7 +10,7 @@ const TableInputsReducer = ( state, [ type, data ], props      ) => {
 
 		if( data.key ){
 			let line = data.list.find(( item ) => item.id === data.key );
-			console.log( values);
+
 			for( const inpCell of data.inputs ){
 				values[ inpCell.key ] = line ? line[ inpCell.key ] : "";
 			}
@@ -32,10 +32,17 @@ const TableInputsReducer = ( state, [ type, data ], props      ) => {
 			[data.key]: data.value,
 			index: data.index
 		};
-
 		return {
 			...state,
 			values
+		}
+	};
+
+	if( type === "visible" ){
+
+		return {
+			...state,
+			visible: data
 		}
 	};
 	return state;
@@ -47,15 +54,20 @@ export const TableInputs =(props)=>{
 	let list = props.list;
 	let inputs = props.inputs|| [];
 	let reducer = props.reducer|| (()=>{});
+	let selectedKey = props.selectedKey;
 
 	const[state, dispatch] =useReducer(TableInputsReducer,{
 		values:{},
-		list:[]
+		visible:false
 	});
 
 	useEffect(() => {
-		dispatch([ "reconstruct", { inputs: inputs, list: list } ]);
-	}, [ inputs, list ]);
+		dispatch([ "reconstruct", { inputs: inputs, list: list, key: selectedKey } ]);
+	}, [ inputs, list, selectedKey]);
+
+	useEffect(() => {
+		dispatch([ "visible", selectedKey ? true: false]);
+	}, [  selectedKey]);
 
 	return(
 		<div className={"input"}>
@@ -76,7 +88,11 @@ export const TableInputs =(props)=>{
 						)
 				})
 			}
-			<p className={"input-add"} onClick={() => reducer([ "add", state.values ])}>Add</p>
+			<div className={"input-btn-block"}>
+				<p className={"input-btn btn-add"} onClick={() => reducer([ "add", state.values ])}>Add</p>
+				<p className={"input-btn btn-change"} onClick={() => reducer([ "changeData", {value: state.values, key: selectedKey}])}>Change</p>
+			</div>
+
 		</div>
 	)
 };
