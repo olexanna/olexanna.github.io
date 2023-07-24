@@ -6,14 +6,14 @@ import {TableTitles } from "@components/Table/table-titles";
 
 const TableReducer = ( state, [ type, data ] ) => {
 
-if( type==="add" ){
+	if( type==="add" ){
 		let list = [...state.list];
 
 		list.push({
 			...data,
 			id: Math.floor( Math.random() *  100000.0 )
 		});
-		console.log(list, "action:add");
+
 		return {
 			...state,
 			list: list
@@ -44,7 +44,9 @@ if( type==="add" ){
 
 		if( index > -1 )
 			list[ index ] = data.value;
+
 		console.log(list[ index ], "changeData");
+
 		return {
 			...state,
 			list: list

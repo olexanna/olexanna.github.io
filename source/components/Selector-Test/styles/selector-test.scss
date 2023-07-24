@@ -1,0 +1,151 @@
+.search{
+	position: relative;
+	max-width: 450px;
+	margin: 15px auto 0 auto;
+	background: #330926;
+	border-radius: 12px;
+	padding: 0px 0px 10px 0px;
+
+	&-backdrop{
+		position: fixed;
+		top: 0;
+		right: 0;
+		left: 0;
+		bottom: 0;
+	}
+
+	&-wrap{
+		position: relative;
+	}
+
+	&-display{
+		position: relative;
+		background: #91537e2b;
+		padding: 10px 8px 0px 8px;
+		border-radius: 12px;
+		overflow: hidden;
+
+		&-wrap{
+			position: relative;
+			display: flex;
+			padding: 8px 0px 5px 0px;
+			transition: all 0.2s ease-in-out;
+			max-width: inherit;
+		}
+
+		&-btn{
+			display: flex;
+			width: 25px;
+			height: 25px;
+			border-radius: 100%;
+			background: #3309267d;
+			color: white;
+			cursor: pointer;
+			align-items: center;
+			justify-content: center;
+			box-shadow: 0px 0px 0px 2px #ffffff17;
+		}
+
+	}
+
+	&-inp{
+		position: relative;
+		width: 100%;
+		padding: 5px 0px 6px 5px;
+		font-size: 14px;
+		font-family: 'Roboto';
+		outline: none;
+		border-radius: 5px;
+		border: 2px solid #ddd8dc;
+		color: #4c2446;
+		text-shadow: 0px 0px 0px #4c2446;
+		background: #fdf2ff;
+	}
+
+	&-tags-wrap{
+		position: relative;
+		background: #4c183d;
+		border-radius: 11px;
+	}
+
+	&-tags{
+		position: relative;
+		display: flex;
+		overflow: hidden;
+		padding: 5px 0px 5px 0px;
+		transition: all 0.2s ease-in-out;
+
+		&-item{
+			position: relative;
+			background: #60234d3d;
+			padding: 4px 6px 4px 5px;
+			display: flex;
+			border-radius: 8px;
+			color: white;
+			font-family: 'Roboto';
+			font-size: 13px;
+			box-shadow: 0px 0px 3px 0px #793665;
+			margin-right: 7px;
+
+			&-title{
+				position: relative;
+				margin-right: 3px;
+			}
+
+			&-remove{
+				position: relative;
+				width: 17px;
+				height: 16px;
+				background: #53153f;
+				border-radius: 100%;
+				display: flex;
+				justify-content: center;
+				font-size: 13px;
+				cursor: pointer;
+			}
+		}
+	}
+
+	&-list{
+		margin: 23px 6px 0px 6px;
+		position: relative;
+		padding: 8px 8px 6px 8px;
+		border-radius: 12px;
+		background: #340e28;
+		box-shadow: 0px 2px 5px 2px #220a1a;
+
+		&-item{
+			position: relative;
+			background: #3f1632;
+			margin: 0px 0px 3px 0px;
+			padding: 6px 0px 5px 5px;
+			border-radius: 8px;
+			font-family: 'Roboto';
+			font-size: 14px;
+			color: #ae8ba2;
+			cursor: pointer;
+		}
+
+		&-item:hover{
+			background: #4c223f;
+			transition: 0.5s;
+		}
+	}
+}
+
+.arrow-left{
+	position: absolute;
+	left: 0;
+	z-index: 1;
+}
+
+.arrow-right{
+	position: absolute;
+	right: 0;
+	z-index: 1;
+}
+
+.block{
+	display: block!important;
+}
+

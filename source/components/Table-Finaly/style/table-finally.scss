@@ -1,0 +1,39 @@
+.table{
+	position: relative;
+
+	&-inp{
+		position: relative;
+
+		&-item{
+			position: relative;
+		}
+
+		&-btn{
+			position: relative;
+
+			&-item{
+				position: relative;
+			}
+		}
+	}
+
+	&-body{
+		position: relative;
+	}
+
+	&-row{
+		position: relative;
+
+		&-item{
+			position: relative;
+		}
+
+		&-btn{
+			position: relative;
+
+			&-item{
+				position: relative;
+			}
+		}
+	}
+}

@@ -10,11 +10,12 @@ const EventTargetReducer = ( state, [ type, data ] ) => {
 
 		header[data.index].value= data.value;
 		console.log(header[data.index].value, "changeHeaderValue");
+
 		return {
 			...state,
 			header:header
 		}
-	};
+	}
 
 	if( type === "changeValue" ){
 		let list = [...state.list];
@@ -25,7 +26,7 @@ const EventTargetReducer = ( state, [ type, data ] ) => {
 			...state,
 			list: list
 		}
-	};
+	}
 
 	if( type === "display" ){
 		return {
@@ -33,7 +34,7 @@ const EventTargetReducer = ( state, [ type, data ] ) => {
 			display: data.display,
 			selectedIndex: -1
 		}
-	};
+	}
 
 	if( type === "checkBox" ){
 
@@ -41,11 +42,12 @@ const EventTargetReducer = ( state, [ type, data ] ) => {
 
 		list[ data.index ].mark = data.value;
 		console.log(data.value, "checkBox" );
+
 		return {
 			...state,
 			list: list
 		}
-	};
+	}
 
 	if( type === "remove" ){
 		let list = [ ...state.list ];
@@ -104,7 +106,7 @@ export const EventTarget = ( props) => {
 	return (
 		<div className={"data"}>
 
-			<p  className={"data-btn"} onClick={()=> dispatch([ "display", { display: true }])} >Push me</p>
+			<p  className={"data-btn"} onClick={()=> dispatch([ "display", { display: true }])}>Push me</p>
 
 			<div className={"data-display " +(state.display ? "flex": "  ")}>
 				<div className={"data-inp-block"}>
@@ -159,7 +161,7 @@ export const EventTarget = ( props) => {
 				</div>
 
 				{
-					state.list.map(( line, index ) => {
+					state.list.map(( line, index )=>{
 						return(
 						<div className={"data-row-wrap"} key={ line.id }>
 							<p className={"data-row-id"}>{line.id}</p>
@@ -196,7 +198,6 @@ export const EventTarget = ( props) => {
 										onClick={()=>dispatch([ "remove", { id: line.id } ]) }
 									>{"remove"}</p>
 								</div>
-
 							</div>
 						</div>)})
 				}

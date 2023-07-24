@@ -1,0 +1,51 @@
+{"result":[
+      {
+        "country": "US",
+        "city": "New-York"
+      },
+      {
+        "country": "Belarus",
+        "city": "Minsk"
+      },
+    {
+      "country": "Russia",
+      "city": "Moscow"
+    },
+    {
+      "country": "China",
+      "city": "Hong Kong"
+    },
+    {
+      "country": "Japan",
+      "city": "Tokio"
+    },
+   {
+      "country": "France",
+      "city": "Paris"
+    },
+    {
+      "country": "Italy",
+      "city": "Milan"
+    },
+    {
+      "country": "Germany",
+      "city": "Berlin"
+    },
+    {
+      "country": "Hungary",
+      "city": "Budapest"
+    },
+    {
+      "country": "Romania",
+      "city": "Bucharest"
+    },
+  {
+    "country": "Argentina",
+    "city": "Buenos Aires"
+  },
+  {
+    "country": "Zealand",
+    "city": "Wellington"
+  }
+]
+}

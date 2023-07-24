@@ -32,6 +32,7 @@ const TableInputsReducer = ( state, [ type, data ], props      ) => {
 			[data.key]: data.value,
 			index: data.index
 		};
+
 		return {
 			...state,
 			values
@@ -88,11 +89,11 @@ export const TableInputs =(props)=>{
 						)
 				})
 			}
+
 			<div className={"input-btn-block"}>
 				<p className={"input-btn btn-add"} onClick={() => reducer([ "add", state.values ])}>Add</p>
 				<p className={"input-btn btn-change"} onClick={() => reducer([ "changeData", {value: state.values, key: selectedKey}])}>Change</p>
 			</div>
-
 		</div>
 	)
 };

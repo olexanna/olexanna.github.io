@@ -1,0 +1,245 @@
+.data{
+	position: relative;
+	width: 80%;
+	margin: 18px auto 0px auto;
+	font-family: "Roboto";
+	background: #131638;
+	padding: 10px 10px 10px 10px;
+	border-radius: 7px;
+
+	&-backdrop{
+		position: fixed;
+		top: 0;
+		left: 0;
+		bottom: 0;
+		right: 0;
+		background: #1d2f3aad;
+		z-index: 1;
+		display: none;
+	}
+
+	&-title{
+		position: relative;
+		color: white;
+		font-size: 14px;
+		display: flex;
+		width: 85%;
+		padding: 0px 0px 0px 31px;
+
+		&-item{
+			position: relative;
+			width: 15%;
+			display: flex;
+		}
+	}
+
+	&-body{
+		position: relative;
+		background: #0e102c;
+		padding: 10px 7px 2px 7px;
+		border-radius: 7px;
+	}
+
+	&-row{
+		position: relative;
+		display: flex;
+		color: #f6ebff;
+		background: #23264a;
+		margin-bottom: 11px;
+		padding: 9px 5px 10px 9px;
+		border-radius: 10px;
+		margin-right: 5px;
+		box-shadow: 0px 0px 1px 0px #7e80997d;
+
+		&-item{
+			position: relative;
+			width: 13%;
+			display: flex;
+		}
+
+		&-btn{
+			position: relative;
+
+			&-item{
+				position: relative;
+				font-size: 12px;
+				letter-spacing: 0.4px;
+				padding: 5px 8px 4px 8px;
+				border-radius: 13px;
+				border: 1px solid #967F29;
+				cursor: pointer;
+			}
+
+			&-item:nth-child(odd){
+				background: #4A3D0D;
+				color: #97843e;
+				margin-right: 5px;
+			}
+			&-item:nth-child(odd):hover{
+				background: #302809;
+				transition: 0.3s;
+			}
+
+			&-item:nth-child(even){
+				background: #320c36;
+				border: 1px solid #86588b;
+				color: #dec5ff;
+			}
+			&-item:nth-child(even):hover{
+				background: #1e0620;
+				border: 1px solid #9a719f;
+				transition: 0.3s;
+			}
+		}
+	}
+}
+
+.title{
+	position: relative;
+	width: 100%;
+	display: flex;
+	justify-content: space-between;
+	margin-bottom: 10px;
+
+	&-item{
+		position: relative;
+		color: white;
+		align-self: center;
+	}
+}
+
+.btn{
+	position: relative;
+	cursor: pointer;
+}
+
+.addBtn{
+	font-size: 13px;
+	color: white;
+	padding: 4px 15px 6px 15px;
+	background: #162c2c;
+	border-radius: 3px;
+	border: 1px solid #1c3838;
+}
+
+.popup{
+	position: absolute;
+	max-width: 550px;
+	background: #143245;
+	border-radius: 8px;
+	box-shadow: 0px 0px 4px 3px #101332;
+	padding: 11px 8px 11px 8px;
+	margin: 0 auto;
+	font-family: "Roboto";
+	z-index: 2;
+	display: none;
+	top: 0;
+	left: 0;
+	right: 0;
+
+	&-title{
+		position: relative;
+		display: flex;
+		justify-content: space-between;
+		color: #5d7f97;
+		border-bottom: 1px solid #213f4c;
+		padding-bottom: 18px;
+
+		&-text{
+			position: relative;
+			font-size: 18px;
+			letter-spacing: 2px;
+			color: #3d647e;	/*(#274b64;)*/
+		}
+
+		&-close{
+			position: relative;
+			width: 17px;
+			height: 17px;
+			border-radius: 100%;
+			background: #2e495a;
+			font-size: 13px;
+			display: flex;
+			justify-content: center;
+			box-shadow: 0px 0px 0px 1px #4f6c7c;
+			cursor: pointer;
+		}
+
+		&-close:hover{
+			transition: 0.2s;
+			background: #263c4d;
+			box-shadow: 0px 0px 1px 0px #2c4657;
+		}
+	}
+
+	&-body{
+		position: relative;
+	}
+
+	&-field{
+		position: relative;
+
+		&-text{
+			position: relative;
+			color: #46657a;
+			text-align: center;
+			padding: 10px 0px 1px 0px;
+			font-size: 14px;
+
+			&-title{
+				position: relative;
+			}
+			&-error{
+				position: relative;
+				color: #cd439c;
+				text-shadow: 0px 0px 0px black;
+			}
+		}
+
+		&-inp{
+			position: relative;
+			outline: unset;
+			width: 100%;
+			padding: 5px 0px 4px 4px;
+			border-radius: 5px;
+			border: 3px solid #ffffff;
+		}
+	}
+}
+
+
+.create-wrap{
+	position: relative;
+	display: flex;
+	justify-content: space-between;
+}
+.popup-btn{
+	position: relative;
+	margin: 19px 0px 0px 0px;
+	padding: 6px 9px 5px 9px;
+	border-radius: 8px;
+	color: white;
+	font-size: 14px;
+}
+
+.create{
+	background: #0b2332;
+	box-shadow: 0px 0px 1px 0px #4f6c7c;
+}
+.create:hover{
+	transition: 0.2s;
+	background: #0b1928;
+	box-shadow: 0px 0px 1px 0px #425f6f;
+}
+.change-data{
+	position: relative;
+	background: #261426;
+	border: 1px solid #3e333d;
+}
+.change-data:hover{
+	transition: 0.2s;
+	background: #1d0e1d;
+}
+
+
+

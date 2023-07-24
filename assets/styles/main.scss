@@ -44,3 +44,12 @@ body{
 .background-unset{
 	background: unset!important;
 }
+
+.block{
+	display: block!important;
+}
+
+.flex-column{
+	display: flex!important;
+	flex-direction: column;
+}
