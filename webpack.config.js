@@ -36,5 +36,26 @@ module.exports = {
 			"@modules": path.resolve( __dirname, "source", "modules" ),
 			"@utility": path.resolve( __dirname, "source", "utility" )
 		}
+	},
+	plugins: [
+		new HtmlWebpackPlugin({
+			template: "./index.html"
+		})
+	],
+	performance: {
+		hints: false,
+		maxEntrypointSize: 512000,
+		maxAssetSize: 512000
+	},
+	devServer: {
+		port: 3060,
+		hot: false,
+		liveReload: false,
+		historyApiFallback:{
+			index:'/index.html'
+		},
+		static: {
+			directory: path.join( __dirname, '/' ),
+		}
 	}
 };
