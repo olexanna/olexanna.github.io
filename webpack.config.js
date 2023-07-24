@@ -42,6 +42,11 @@ module.exports = {
 			template: "./index.html"
 		})
 	],
+	performance: {
+		hints: false,
+		maxEntrypointSize: 512000,
+		maxAssetSize: 512000
+	},
 	devServer: {
 		port: 3060,
 		hot: false,
