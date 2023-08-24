@@ -238,14 +238,53 @@ export const DataTable = ( props ) => {
 	return(
 		<article className={"data"}>
 			<section
-				className={"data-backdrop " + (state.visible ? " flex":  " hidden"   )}
+				className={"data-backdrop "}
 				onClick={()=>{ dispatch(["visible", false])}}
 			>{}</section>
 
-			<div className={"title"}>
-				<p className={"title-item"}>Users</p>
-				<Button btnClass={"addBtn"} button={"Add"} onClick={()=>{ dispatch(["visible", true])}}/>
-			</div>
+			<section className={"popup " }>
+
+				<div className={"popup-body"}>
+					{
+						state.inputs.map((item)=>{
+							if(item.type ==="hidden"){
+								return null;
+							}
+							return(
+								<div className={"popup-field" } key={item.key}>
+									<p className={"popup-field-text" }>
+										<span className={"popup-field-text-error" }>{state.errors[ item.key ] ? "error-fill in the data":  " "}</span>
+									</p>
+
+									<input className={"popup-field-inp "  + (state.errors[ item.key ] ? " error" : "")}
+										   placeholder={item.title}
+										   type={"text"}
+										   value={state.value[item.key]|| ""}
+										   onChange={(event)=>{ dispatch(["data", {value: event.target.value, key:item.key}])} }
+										   autoComplete={"chrome-off"}
+									/>
+								</div>
+							)
+						})
+					}
+				</div>
+
+				<div className={"create-wrap"}>
+					<Button btnClass={"create"} button={"Create"}
+							onClick={()=>{
+								let check = CheckInput( state.inputs, state.value );
+								console.log( "check.errors: ", check.errors );
+
+								if( !check.failed ){
+									dispatch(["create",  state.value]);
+								}else{
+									dispatch(["error", check.errors]);
+								};
+							}}
+					/>
+
+				</div>
+			</section>
 
 			<div className={"data-title"}>
 				{
@@ -277,83 +316,32 @@ export const DataTable = ( props ) => {
 									})
 								}
 
-								<p className={"data-row-btn"}>
+								<div className={"data-row-btn"}>
 									<span className={"data-row-btn-item"}
 										onClick={()=>{ dispatch(["edit", {key:line.id}])}}
 									>
 										Edit
 									</span>
 									<span className={"data-row-btn-item"} onClick={()=>{ dispatch(["remove", {id:line.id}])}}>Remove</span>
-								</p>
+									<Button btnClass={"popup-btn change-data"} button={"change data"}
+											onClick={()=>{
+												let check = CheckInput( state.inputs, state.value );
+												console.log( "check.errors: ", check.errors );
+
+												if( !check.failed ){
+													dispatch(["changeData",  {id:state.indexId, value:state.value}])
+												}else{
+													dispatch(["error", check.errors]);
+												};
+											}}
+									/>
+								</div>
 							</div>
 						)
 
 					})
 				}
 			</section>
-
-
-			<section className={"popup " + (state.visible ? " flex-column":  " hidden"   )}>
-				<p className={"popup-title"}>
-					<span className={"popup-title-text"}>Create user</span>
-					<span className={"popup-title-close"} onClick={()=>{ dispatch(["close", false])}}>x</span>
-				</p>
-
-				<div className={"popup-body"}>
-					{
-						state.inputs.map((item)=>{
-							if(item.type ==="hidden"){
-								return null;
-							}
-							return(
-								<div className={"popup-field" } key={item.key}>
-									<p className={"popup-field-text" }>
-										<span className={"popup-field-text-title" }>{item.title}</span>
-										<span className={"popup-field-text-error" }>{state.errors[ item.key ] ? ": error-fill in the data":  " "}</span>
-									</p>
-
-									<input className={"popup-field-inp "  + (state.errors[ item.key ] ? " error" : "")}
-										placeholder={item.title}
-										type={"text"}
-										value={state.value[item.key]|| ""}
-										onChange={(event)=>{ dispatch(["data", {value: event.target.value, key:item.key}])} }
-										autoComplete={"chrome-off"}
-									/>
-								</div>
-							)
-						})
-					}
-				</div>
-
-				<div className={"create-wrap"}>
-					<Button btnClass={"popup-btn create"} button={"Create"}
-						onClick={()=>{
-							let check = CheckInput( state.inputs, state.value );
-							console.log( "check.errors: ", check.errors );
-
-							if( !check.failed ){
-								dispatch(["create",  state.value]);
-							}else{
-								dispatch(["error", check.errors]);
-							};
-						}}
-					/>
-
-					<Button btnClass={"popup-btn change-data"} button={"change data"}
-						onClick={()=>{
-							let check = CheckInput( state.inputs, state.value );
-							console.log( "check.errors: ", check.errors );
-
-							if( !check.failed ){
-								dispatch(["changeData",  {id:state.indexId, value:state.value}])
-							}else{
-								dispatch(["error", check.errors]);
-							};
-						}}
-					/>
-				</div>
-			</section>
-
 		</article>
 	);
 };

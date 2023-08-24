@@ -119,7 +119,7 @@ export const TablePraxis = (  props ) => {
 
 
 	useEffect(() => {
-		dispatch([ "visible", state.indexId ? true: false]);
+		dispatch([ "visible", state.indexId ? true : false]);
 	}, [  state.indexId ]);
 
 

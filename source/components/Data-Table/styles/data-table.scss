@@ -1,9 +1,9 @@
 .data{
 	position: relative;
-	width: 80%;
+	max-width: 1140px;
 	margin: 18px auto 0px auto;
 	font-family: "Roboto";
-	background: #131638;
+	background: #f5f5ff;
 	padding: 10px 10px 10px 10px;
 	border-radius: 7px;
 
@@ -123,19 +123,16 @@
 }
 
 .popup{
-	position: absolute;
-	max-width: 550px;
-	background: #143245;
-	border-radius: 8px;
-	box-shadow: 0px 0px 4px 3px #101332;
-	padding: 11px 8px 11px 8px;
+	position: relative;
+	display: flex;
+	width: fit-content;
 	margin: 0 auto;
+	background: #fafdff;
+	border-radius: 10px;
+	box-shadow: 0px 0px 4px 3px #ecedfff5;
+	padding: 6px 10px 7px 8px;
 	font-family: "Roboto";
-	z-index: 2;
-	display: none;
-	top: 0;
-	left: 0;
-	right: 0;
+	border: 2px solid #eaecff;
 
 	&-title{
 		position: relative;
@@ -174,35 +171,52 @@
 
 	&-body{
 		position: relative;
+		display: flex;
+
 	}
 
 	&-field{
 		position: relative;
 
 		&-text{
-			position: relative;
-			color: #46657a;
-			text-align: center;
-			padding: 10px 0px 1px 0px;
-			font-size: 14px;
+			position: absolute;
+			top: -6px;
+			display: block;
+			font-size: 13px;
+			z-index: 1;
+			left: 0;
+			background: #f3f3ff;
+			box-shadow: 0px 0px 9px 1px #d6d8ff;
+			padding: 1px 5px 2px 5px;
+			border-radius: 6px;
 
 			&-title{
 				position: relative;
 			}
 			&-error{
 				position: relative;
-				color: #cd439c;
+				color: #b53ba5;
 				text-shadow: 0px 0px 0px black;
 			}
+		}
+
+		&-text:after{
+			content: "";
+			position: absolute;
+			top: 4px;
+			right: -16px;
+			border: 6px solid rgba(255, 255, 255, 0);
+			border-left: 12px solid #f3f3ff;
+			z-index: 0;
 		}
 
 		&-inp{
 			position: relative;
 			outline: unset;
-			width: 100%;
-			padding: 5px 0px 4px 4px;
 			border-radius: 5px;
 			border: 3px solid #ffffff;
+			background: #ece9ff;
+			padding: 9px 0px 10px 7px;
 		}
 	}
 }
@@ -211,35 +225,20 @@
 .create-wrap{
 	position: relative;
 	display: flex;
-	justify-content: space-between;
 }
-.popup-btn{
+.create{
 	position: relative;
-	margin: 19px 0px 0px 0px;
-	padding: 6px 9px 5px 9px;
-	border-radius: 8px;
+	display: flex;
+	align-self: center;
+	background: #4e3160;
+	padding: 7px 11px 7px 10px;
+	border-radius: 6px;
 	color: white;
 	font-size: 14px;
-}
+	margin-left: 3px;
+ }
 
-.create{
-	background: #0b2332;
-	box-shadow: 0px 0px 1px 0px #4f6c7c;
-}
-.create:hover{
-	transition: 0.2s;
-	background: #0b1928;
-	box-shadow: 0px 0px 1px 0px #425f6f;
-}
-.change-data{
-	position: relative;
-	background: #261426;
-	border: 1px solid #3e333d;
-}
-.change-data:hover{
-	transition: 0.2s;
-	background: #1d0e1d;
-}
+
 
 
 

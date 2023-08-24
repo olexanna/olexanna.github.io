@@ -1,21 +1,21 @@
 .list-body{
 	position: relative;
 	max-width: 500px;
+	width: 100%;
 	margin: 0 auto;
-	padding: 12px 9px 4px 9px;
-	background: #1b2339;
-	border-radius: 12px;
+	background:#eeebff;
+	border-radius: 10px;
 	margin-top: 10px;
-	border: 1px solid #7a6e93;
+	box-shadow: 0px 0px 2px 2px #7f768b;
 }
-
 .list{
 	position: relative;
 	font-family: "Roboto";
-	background: #222a40;
-	padding: 8px 5px 8px 7px;
-	margin: 10px auto;
+	background: #ededff;
+	padding: 6px 5px 2px 7px;
 	border-radius: 10px;
+	overflow-y: auto;
+	max-height: 400px;
 
 	&-wrap{
 		position: relative;
@@ -33,30 +33,45 @@
 	&-block{
 		position: relative;
 		display: flex;
-		background: #2e334d;
-		margin-bottom: 6px;
-		padding: 5px 6px 4px 6px;
+		background: #f2f1ff;
+		margin-bottom: 4px;
+		padding: 8px 6px 6px 6px;
 		border-radius: 4px;
-		color: #dad8e9;
+		color: #222331;
 		justify-content: space-between;
 
 		&-item{
 			position: relative;
+			width: 47%;
 		}
 
 		&-check{
 			position: relative;
-			width: 16px;
-			height: 16px;
-			border: 2px solid #384056;
+			width: 20px;
+			height: 20px;
+			border: 1px solid #d9d9ff;
 			margin-left: 10px;
 			cursor: pointer;
-			border-radius: 4px;
+			border-radius: 3px;
 			display: flex;
 			align-self: center;
 		}
 	}
 }
+.list::-webkit-scrollbar {
+	width: 5px;
+}
+.list::-webkit-scrollbar-track {
+	border-radius: 10px;
+}
+.list::-webkit-scrollbar-thumb {
+	background: #6a5b8d;
+	border-radius: 10px;
+}
+.list::-webkit-scrollbar-thumb:hover {
+	background: #5a4c7c;
+}
+
 
 .list-tags{
 	position: relative;
@@ -66,56 +81,57 @@
 		position: relative;
 		outline: unset;
 		padding: 8px 0px 8px 6px;
-		border-radius: 4px;
-		border: 2px solid #363b56;
+		border-top: 2px solid #f5f5ff;
+		border-bottom: 2px solid #f5f5ff;
+		border-left: unset;
+		border-right: unset;
 		width: 100%;
-		margin: 0px 34px 0px 34px;
-		background: #2f3454;
-		color: white;
+		background: #ffffff;
+		color: #3e294b;
 	}
 }
 .list-tags-search-wrap{
 	position: relative;
 	display: flex;
-	margin: 0 auto;
-	width: 100%;
-}
-.list-tags-search{
-	position: relative;
+	border-radius: 8px;
+	border: 1px solid #ece4f1;
 }
 .list-tags-left{
-	position: absolute;
-	top: 3px;
-	left: 2px;
-	width: 27px;
-	height: 27px;
-	border-radius: 100%;
-	background: #a1245a;
+	position: relative;
+	width: 34px;
+	height: 35px;
+	background:#5d426f;
 	color: white;
 	cursor: pointer;
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	box-shadow: 0px 0px 4px 0px #bd688d;
-	z-index: 1;
+	border-top-left-radius: 8px;
+	border-bottom-left-radius: 8px;
+	border: 2px solid #f5f5ff;
 }
 .list-tags-right{
-	position: absolute;
-	top: 3px;
-	right: 2px;
+	position: relative;
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	box-shadow: 0px 0px 4px 0px #bd688d;
-	z-index: 1;
-	width: 27px;
-	height: 27px;
-	border-radius: 100%;
-	background: #a1245a;
+	width: 34px;
+	height: 35px;
+	background: #5d426f;
 	color: white;
 	cursor: pointer;
+	border-top-right-radius: 8px;
+	border-bottom-right-radius: 8px;
+	border: 2px solid #f5f5ff;
 }
-
+.list-tags-left:hover{
+	  background: #4f2f65;
+	  transition: 0.2s;
+  }
+.list-tags-right:hover{
+	background: #4f2f65;
+	transition: 0.2s;
+}
 .tags-block-wrap{
 	display: flex;
 	width: 100%;
@@ -124,51 +140,72 @@
 	position: relative;
 	display: flex;
 	transition: 0.5s;
-	padding: 10px 0px 10px 10px;
+	//padding: 0px 0px 0px 3px;
 }
-
+.tags-block-padding{
+	padding: 10px 0px 10px 3px!important;
+}
 .tags-block{
 	position: relative;
 	display: flex;
-	margin-right: 10px;
-	background: #222a40;
+	margin-right: 5px;
+	background: #47355f;
 	border-radius: 5px;
 	align-items: center;
-	padding: 4px 4px 5px 6px;
+	padding: 5px 0px 6px 5px;
 	letter-spacing: 0.5px;
 	font-size: 12px;
 	color: white;
 	text-align: center;
+	flex-direction: row-reverse;
 
 	&-item{
 		position: relative;
 		font-family: 'Roboto';
+		overflow: hidden;
+		white-space: nowrap;
+		text-overflow: ellipsis;
+		max-width: 77px;
+		margin-right: 6px;
 	}
 	&-remove{
-		position: absolute;
-		right: -4px;
-		top: -5px;
-		background: #2e334d;
-		color: #d9d7ed;
+		position: relative;
+		background: #4d345d;
+		color: #e9dfff;
 		font-family: 'Roboto';
-		width: 15px;
-		font-size: 11px;
-		height: 15px;
+		width: 17px;
+		height: 17px;
+		font-size: 12px;
 		display: flex;
 		justify-content: center;
 		border-radius: 100%;
-		box-shadow: 0px 0px 2px 0px #ffffff;
 		cursor: pointer;
+		margin-right: 4px;
+		border: 1px solid #543979;
 	}
 }
 
 .check:after{
 	content: "";
-	position: absolute;
-	top: 2px;
-	left: 3px;
-	width: 8px;
-	height: 8px;
-	border-radius: 100%;
-	background: #BD1960;
+	width: 17px;
+	height: 16px;
+	background: #505080;
+	border-radius: 2px;
+	border: 1px solid #505080;
 }
+ .check:before{
+	content: "";
+	position: absolute;
+	top: 3px;
+	left: 5px;
+	width: 6px;
+	height: 6px;
+	border-right: 2px solid white;
+	border-top: 2px solid white;
+	transform: rotate(135deg);
+	z-index: 1;
+}
+/*
+#4f478d;
+#e8e9fd;
+*/

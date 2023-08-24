@@ -124,6 +124,23 @@ const SelectorJsonReducer = ( state, [ type, data ], props ) => {
 		}
 	}
 
+	if( type === "padding" ){
+
+		let tagsBlock = state.tagsBlock;
+
+		if(data.select.length > 0 ){
+			 tagsBlock = "10px 0px 10px 3px";
+		}else {
+			 tagsBlock = "0px 0px 0px 3px";
+		}
+
+		return{
+			...state,
+			tagsBlock:tagsBlock
+		}
+	};
+
+	return state;
 };
 
 
@@ -138,7 +155,8 @@ export const SelectorJson = (props, data) => {
 		value:"",
 		scrollLeft: 0,
 		swipe:false,
-		zIndex:0
+		zIndex:0,
+		tagsBlock: ""
 	});
 
 
@@ -178,6 +196,9 @@ export const SelectorJson = (props, data) => {
 		getList();
 	}, []);
 
+	useEffect(() => {
+		dispatch([ "padding",{select: state.select}]);
+	}, [state.select]);
 
 	return(
 		<article className={"list-body"} >
@@ -202,13 +223,13 @@ export const SelectorJson = (props, data) => {
 				</div>
 
 				<div className={"tags-block-wrap"}  ref={display}>
-					<div className={"tags-block-display"}   style={{marginLeft:(-state.scrollLeft ) + "px" }} ref={slider}>
+					<div className={"tags-block-display "}   style={{marginLeft:(-state.scrollLeft ) + "px", padding: state.tagsBlock }} ref={slider}>
 					{
 						state.select.map((item)=>{
 							return(
-								<p className={"tags-block"} key={item.key}>
-									<span className={"tags-block-item"}>{item.value}</span>
+								<p className={"tags-block "} key={item.key} >
 									<span  className={"tags-block-remove"} onClick={()=>{	dispatch(["remove",{id:item.id}])}}>x</span>
+									<span className={"tags-block-item"}>{item.value}</span>
 								</p>
 							)
 						})
@@ -226,7 +247,7 @@ export const SelectorJson = (props, data) => {
 							<p className={"list-block-item"}>{item.city}</p>
 							<p className={"list-block-check " + (item.mark)}
 							   onClick={()=>{
-									dispatch(["check", { index: index, key: item.key, value: item.key, id: item.id, check: item.mark ===  " check"? " " : " check" }])}
+									dispatch(["check", { index: index, key: item.key, value: item.key, id: item.id, check: item.mark ===  "check"? " " : "check" }])}
 							   }>{}
 							</p>
 						</div>

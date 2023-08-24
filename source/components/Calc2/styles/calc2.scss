@@ -11,7 +11,7 @@
 
 	&-light{
 		background:#ffffff!important;
-		box-shadow: 0px 0px 15px 6px #d9cbcb7a!important;
+		box-shadow: 0px 0px 0px 6px #d9cbcb7a !important;
 	}
 	&-block-light-select{
 		background: #fbf5f5!important;
@@ -260,6 +260,7 @@
 		flex-direction: column;
 		flex-wrap: wrap;
 		padding: 0px 0px 10px 0px;
+		min-width: 220px;
 
 		&-high{
 			position: relative;
