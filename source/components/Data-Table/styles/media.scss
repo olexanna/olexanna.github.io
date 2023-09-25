@@ -1,0 +1,53 @@
+@media only screen and (max-width: 1287px) {
+
+	.popup{
+		flex-wrap: wrap;
+
+		&-body{
+			position: relative;
+			display: flex;
+			justify-content: space-between;
+			width: 100%;
+		}
+
+		&-field{
+			position: relative;
+			display: flex;
+			width: 25%;
+
+			&-inp{
+				width: 100%;
+			}
+		}
+	}
+
+	.create-wrap {
+		position: relative;
+		display: flex;
+		margin: 5px auto 2px auto;
+		width: 100%;
+		justify-content: space-between;
+	}
+	.create {
+		position: relative;
+		display: flex;
+		align-self: center;
+		background: #4e3160;
+		padding: 7px 25px 7px 25px;
+		border-radius: 6px;
+		color: white;
+		font-size: 14px;
+		margin-right: 5px;
+	}
+
+	.change-data {
+		display: flex;
+		align-self: center;
+		background: #2D6061;
+		color: white;
+		text-align: center;
+		font-size: 14px;
+		padding: 7px 7px 7px 7px;
+		border-radius: 6px;
+	}
+}

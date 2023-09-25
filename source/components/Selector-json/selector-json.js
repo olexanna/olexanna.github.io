@@ -34,7 +34,7 @@ const SelectorJsonReducer = ( state, [ type, data ], props ) => {
 			...state,
 			list:list,
 			select:select,
-			index: data.index
+			//index: data.index
 		}
 	}
 

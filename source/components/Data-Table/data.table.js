@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState,useReducer, useRef } from "react";
 import "@components/Data-Table/styles/data-table.scss"
+import "@components/Data-Table/styles/media.scss"
 import {Button } from "@components/Data-Table/button";
 
 
@@ -96,10 +97,8 @@ const DataTableReducer = ( state, [ type, data ], props ) => {
 		let index = list.findIndex((item)=>item.id === data.id);
 
 		if( index > -1 ){
-			list[index] = {...list[index], ...data.value}
+			list[index] = {...list[index], ...data.value};
 		}
-
-		console.log("type= changeData: ", list[index]);
 
 		return{
 			...state,
@@ -118,8 +117,7 @@ const DataTableReducer = ( state, [ type, data ], props ) => {
 			let line = state.list.find((item)=>item.id === data.key );
 
 			for( const item of state.inputs){
-				value[item.key] = line ? line[item.key]:"";
-				console.log( "type=edit: ", 	value[item.key]);
+				value[item.key] = line ? line[item.key] : "";
 			}
 		}
 		
@@ -145,36 +143,33 @@ const DataTableReducer = ( state, [ type, data ], props ) => {
 			...state,
 			visible: data,
 			errors:errors,
-			value:value,
+			value:value
 		}
 	};
 
 	if(type === "close"){
-
 		return{
 			...state,
 			visible: data
 		}
 	};
 
-	if( type === "reset" ){
-		let value = {};
-
-		if(data.key){
-			let line = data.list.find((item)=>item.id === data.key );
-
-			for( const item of data.inputs){
-				value[item.key] = line ? line[item.key]:"";
-			}
-		}
-
-		return {
+	if( type === "toolDisplay" ){
+		return{
 			...state,
-			value:value
+			tooltipId: data.id,
+			tooltipType: data.type
 		}
 	};
 
-	return state
+	if(type === "displayInputs"){
+		return{
+			...state,
+			visible: data
+		}
+	};
+
+	return state;
 };
 
 
@@ -191,22 +186,16 @@ const CheckInput =( inputs, object )=>{
 		let column = inputs.find(( f ) => f.key == key );
 
 		if( column && column.type == "hidden" )
-			continue;
-
-		console.log( column, key, item, "CheckInput");
+				continue;
 
 		if( item ){
 			result.count++;
-			//console.log(result.count,  "count");
 			continue;
 		};
 
 		result.errors[ key ] = "error";
 		result.failed = true;
 	};
-
-	if( !result.count )
-		result.failed = true;
 
 	return result;
 };
@@ -232,28 +221,37 @@ export const DataTable = ( props ) => {
 			mail: "",
 			login: ""
 		},
-		indexId: null
+		indexId: null,
+		tooltipId: null,
+		tooltipType: "",
+		buttons:[
+			{elem: "", tooltip: "edit", type: "edit", key:"edit", value:""},
+			{elem: "", tooltip: "remove",  type: "remove", key:"remove", value:""},
+		],
+		select:{}
 	});
 
 	return(
 		<article className={"data"}>
-			<section
-				className={"data-backdrop "}
-				onClick={()=>{ dispatch(["visible", false])}}
-			>{}</section>
 
-			<section className={"popup " }>
+			<div className={"data-add-wrap"}>
+				<p className={"data-add"} onClick={()=>{ dispatch(["displayInputs",  true])}}>
+					<span className={"data-add-icon"}>+</span>
+					<span className={"data-add-text"}>New row</span>
+				</p>
+			</div>
 
+			<section className={"popup " + (state.visible ? " flex": "") }>
 				<div className={"popup-body"}>
 					{
 						state.inputs.map((item)=>{
-							if(item.type ==="hidden"){
+							if( item.type ==="hidden" ){
 								return null;
 							}
 							return(
 								<div className={"popup-field" } key={item.key}>
 									<p className={"popup-field-text" }>
-										<span className={"popup-field-text-error" }>{state.errors[ item.key ] ? "error-fill in the data":  " "}</span>
+										<span className={ (state.errors[ item.key ] ? "popup-field-text-error" : "")  }>{state.errors[ item.key ] ? "error-fill in the data":  " "}</span>
 									</p>
 
 									<input className={"popup-field-inp "  + (state.errors[ item.key ] ? " error" : "")}
@@ -270,13 +268,24 @@ export const DataTable = ( props ) => {
 				</div>
 
 				<div className={"create-wrap"}>
-					<Button btnClass={"create"} button={"Create"}
+					<Button btnClass={"create " + (state.visible === false) } button={"Create"}
+							onClick={()=>{
+								let check = CheckInput( state.inputs, state.value );
+
+								if( !check.failed ){
+									dispatch(["create",  state.value]);
+								}else{
+									dispatch(["error", check.errors]);
+								};
+							}}
+					/>
+					<Button btnClass={"popup-btn change-data " + (state.visible === false) } button={"Change data"}
 							onClick={()=>{
 								let check = CheckInput( state.inputs, state.value );
 								console.log( "check.errors: ", check.errors );
 
 								if( !check.failed ){
-									dispatch(["create",  state.value]);
+									dispatch(["changeData",  {id:state.indexId, value:state.value}])
 								}else{
 									dispatch(["error", check.errors]);
 								};
@@ -286,21 +295,19 @@ export const DataTable = ( props ) => {
 				</div>
 			</section>
 
-			<div className={"data-title"}>
-				{
-					state.inputs.map((item)=>{
-						return(
-							<p className={"data-title-item"} key={item.key}>{item.title}</p>
-						)
-					})
-				}
-			</div>
-
 
 			<section className={"data-body"} >
+				<div className={"data-title"}>
+					{
+						state.inputs.map((item)=>{
+							return(
+								<p className={"data-title-item"} key={item.key}>{item.title}</p>
+							)
+						})
+					}
+				</div>
 				{
-					state.list.map((line)=>{
-
+					state.list.map((line, lineIndex)=>{
 						return(
 							<div className={"data-row"} key={line.id}>
 								<p className={"data-row-item"}>{line.id}</p>
@@ -311,34 +318,44 @@ export const DataTable = ( props ) => {
 											return null;
 										}
 										return(
-											<p className={"data-row-item"} key={line.key + ":" + item.key}>{line[item.key]}</p>
+											<p className={"data-row-item " } key={line.key + ":" + item.key}>{line[item.key]}</p>
 										)
 									})
 								}
+								<div className={"data-row-btn-wrap"}>
+								{
+									state.buttons.map((item, index)=>{
+										return(
+												<p className={"data-row-btn"} key={index}>
+													<span className={"data-row-btn-tool" + (state.tooltipId == line.id && state.tooltipType == item.type ? "" : " hidden") }>
+														{item.tooltip}
+													</span>
 
-								<div className={"data-row-btn"}>
-									<span className={"data-row-btn-item"}
-										onClick={()=>{ dispatch(["edit", {key:line.id}])}}
-									>
-										Edit
-									</span>
-									<span className={"data-row-btn-item"} onClick={()=>{ dispatch(["remove", {id:line.id}])}}>Remove</span>
-									<Button btnClass={"popup-btn change-data"} button={"change data"}
-											onClick={()=>{
-												let check = CheckInput( state.inputs, state.value );
-												console.log( "check.errors: ", check.errors );
+													<span className={"data-row-btn-i "  + (item.type)}
+													  onClick={()=>{
+															if( item.type == "edit" ){
+																dispatch(["edit", {key:line.id}]);
+															}else {
+																dispatch(["remove", {id:line.id}]);
+															}
+													  }}
+														onMouseOver={()=>{
+															dispatch([ "toolDisplay", { id: line.id, type: item.type }]);
+														}}
+														onMouseOut={()=>{
+															dispatch([ "toolDisplay", { id: null } ]);
+														}}
+													>
+														{item.elem}
+													</span>
+												</p>
+										)
+									})
+								}
+							</div>
 
-												if( !check.failed ){
-													dispatch(["changeData",  {id:state.indexId, value:state.value}])
-												}else{
-													dispatch(["error", check.errors]);
-												};
-											}}
-									/>
-								</div>
 							</div>
 						)
-
 					})
 				}
 			</section>

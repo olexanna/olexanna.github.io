@@ -29,13 +29,13 @@
 
 			&-i{
 				position: relative;
-				width: 22px;
+				width: 23px;
 				margin-right: 4px;
 			}
 
 			&-text{
 				position: relative;
-				font-size: 19px;
+				font-size: 20px;
 				font-family: "Poppins-Regular";
 				color: #efd5ff;
 				letter-spacing: 0.3px;
@@ -96,35 +96,9 @@
 	content: "";
 	position: absolute;
 	left: -28px;
-	width: 139%;
+	width: 136%;
 	height: 100%;
 	background: #5d426f;
 	padding: 6px 0px 5px 10px;
 	border-radius: 0px;
 }
-
-/*
-	&-link:after{
-		content: "";
-		position: absolute;
-		top: -10px;
-		right: -10px;
-		transform: rotate(43deg);
-		border: 10px solid;
-		border-color: transparent #ebebff #ebebff transparent;
-		z-index: 2;
-		border-bottom-left-radius: 95px;
-	}
-
-	&-link:before{
-		content: "";
-		position: absolute;
-		bottom: 0px;
-		right: -14px;
-		transform: rotate(90deg);
-		border: 10px solid;
-		border-color: transparent #ebebff #ebebff transparent;
-		z-index: 2;
-		border-bottom-left-radius: 95px;
-	}
-*/

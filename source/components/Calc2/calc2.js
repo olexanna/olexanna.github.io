@@ -74,7 +74,7 @@ const Calc2Reducer=( state, [ type, data ] )=>{
 					lastValue = lastValue.slice( 0, -1 );
 					args[ args.length - 1 ] = lastValue;
 				}
-			};
+			}
 		}
 		else if( data.key == "sqrt" ){
 

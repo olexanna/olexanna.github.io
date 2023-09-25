@@ -1,14 +1,6 @@
 import React, { useEffect, useMemo, useState,useReducer } from "react";
 import "./styles/content.scss"
 import {Wrapper } from "@components/wrapper/wrapper";
-import { Table } from "@components/Table/table";
-import {Selector } from "@components/Selector/selector";
-import {SelectorMulti } from "@components/Selector-Multi/selector-multi";
-import { SelectorMultyFilter } from "@components/Selector-Multy-Filter/selector-multy-filter";
-import { TablePraxis } from "@components/Table-Praxis/table.praxis";
-import {TableRepeat} from "@components/Table-Repeat/table-repeat";
-import {SelectorTest} from "@components/Selector-Test/selector-test";
-import {TableFinally } from "@components/Table-Finaly/table.finally";
 
 
 
