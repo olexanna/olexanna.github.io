@@ -17,12 +17,12 @@ const SelectorJsonReducer = ( state, [ type, data ], props ) => {
 
 		let list = [...state.list];
 		let select = [...state.select];
+		let sortList = [ ...state.sortList ];
 
-		list[ data.index ].mark = data.check;
+		sortList[ data.index ].mark = data.check;
 
-		let index = select.findIndex(( item ) => {
-			return item.key === data.key;
-		});
+		let index = select.findIndex(( item ) => item.key === data.key);
+		console.log(index, "check" );
 
 		if( index > -1 ){
 			select.splice( index, 1 );
@@ -34,7 +34,8 @@ const SelectorJsonReducer = ( state, [ type, data ], props ) => {
 			...state,
 			list:list,
 			select:select,
-			//index: data.index
+			index: data.index,
+			sortList:sortList
 		}
 	}
 
@@ -49,7 +50,7 @@ const SelectorJsonReducer = ( state, [ type, data ], props ) => {
 			item.mark = "";
 		});
 
-		let select = state.select.filter(( item ) => data.id!==item.id);
+		let select = state.select.filter(( item ) => data.id !== item.id);
 
 		return{
 			...state,
@@ -63,7 +64,6 @@ const SelectorJsonReducer = ( state, [ type, data ], props ) => {
 		let sortList = [ ...state.sortList ];
 
 		let value = data.value.trim().toLowerCase();
-
 
 		if( value.length > 0  ){
 			sortList = list.filter((item)=>{
@@ -128,7 +128,7 @@ const SelectorJsonReducer = ( state, [ type, data ], props ) => {
 
 		let tagsBlock = state.tagsBlock;
 
-		if(data.select.length > 0 ){
+		if( data.select.length > 0 ){
 			 tagsBlock = "10px 0px 10px 3px";
 		}else {
 			 tagsBlock = "0px 0px 0px 3px";
@@ -159,10 +159,8 @@ export const SelectorJson = (props, data) => {
 		tagsBlock: ""
 	});
 
-
 	let slider = useRef( null );
 	let display = useRef( null );
-
 
 	const getList = () => {
 		fetch( "/assets/requests/data.json" )
@@ -190,7 +188,7 @@ export const SelectorJson = (props, data) => {
 			dispatch([ "list", listing ]);
 
 			}).catch(( e ) => {});
-	};
+  	};
 
 	useEffect(() => {
 		getList();
@@ -201,7 +199,7 @@ export const SelectorJson = (props, data) => {
 	}, [state.select]);
 
 	return(
-		<article className={"list-body"} >
+		<article className={"list-body"}>
 
 			<div className={"list-backdrop" + (!state.swipe ? " hidden": "")}
 				 onClick={()=>{dispatch(["swipe", false])}} style={{zIndex: state.zIndex }}>
@@ -223,7 +221,7 @@ export const SelectorJson = (props, data) => {
 				</div>
 
 				<div className={"tags-block-wrap"}  ref={display}>
-					<div className={"tags-block-display "}   style={{marginLeft:(-state.scrollLeft ) + "px", padding: state.tagsBlock }} ref={slider}>
+					<div className={"tags-block-display "}   style={{marginLeft:-(state.scrollLeft ) + "px", padding: state.tagsBlock }} ref={slider}>
 					{
 						state.select.map((item)=>{
 							return(
@@ -247,8 +245,9 @@ export const SelectorJson = (props, data) => {
 							<p className={"list-block-item"}>{item.city}</p>
 							<p className={"list-block-check " + (item.mark)}
 							   onClick={()=>{
-									dispatch(["check", { index: index, key: item.key, value: item.key, id: item.id, check: item.mark ===  "check"? " " : "check" }])}
-							   }>{}
+									dispatch(["check", { index: index, key: item.key, value: item.key, id: item.id, check: item.mark  ==  "check"? " " : "check" }])}
+							   }>
+								{}
 							</p>
 						</div>
 					)

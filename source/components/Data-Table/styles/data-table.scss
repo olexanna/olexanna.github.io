@@ -3,9 +3,10 @@
 	max-width: 1140px;
 	margin: 18px auto 0px auto;
 	font-family: "Roboto";
-	background: #f5f5ff;
+	background: #f6f5fb;
 	padding: 10px 10px 10px 10px;
-	border-radius: 7px;
+	border-radius: 8px;
+	box-shadow: 0px 0px 14px 4px #36353c;
 
 	&-add-wrap{
 		position: relative;
@@ -53,7 +54,7 @@
 
 	&-title{
 		position: relative;
-		color: #bbb9c7;
+		color: #948fb3;
 		font-size: 14px;
 		display: flex;
 		padding: 4px 0px 4px 5px;
@@ -68,7 +69,7 @@
 
 	&-body{
 		position: relative;
-		background: #f0eeff;
+		background:#edeafd;
 		padding: 9px 7px 9px 7px;
 		border-radius: 7px;
 		margin-top: 10px;
@@ -195,10 +196,9 @@
 	margin: 0 auto;
 	background: #fafdff;
 	border-radius: 10px;
-	box-shadow: 0px 0px 4px 3px #ecedfff5;
 	padding: 6px 10px 7px 8px;
 	font-family: "Roboto";
-	border: 2px solid #eaecff;
+	outline: 2px solid #e9ebff;
 
 	&-title{
 		position: relative;

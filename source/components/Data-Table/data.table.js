@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState,useReducer, useRef } from "react";
 import "@components/Data-Table/styles/data-table.scss"
 import "@components/Data-Table/styles/media.scss"
 import {Button } from "@components/Data-Table/button";
-
+import {DotContext } from "@components/Gallery/gallery";
 
 
 const DataTableReducer = ( state, [ type, data ], props ) => {
