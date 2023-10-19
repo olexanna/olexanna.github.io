@@ -4994,14 +4994,11 @@ var GalleryReducer = function GalleryReducer(state, _ref) {
   if (type === "right") {
     var _list3 = _toConsumableArray(state.list);
     var marginLeft = state.marginLeft + 120;
-    var slider = data.slider.current.clientWidth;
+    var slider = data.slider.current.scrollWidth;
     var sliderWrap = data.sliderWrap.current.clientWidth;
     var max = slider - sliderWrap;
-    if (marginLeft < max) {
+    if (marginLeft > max) {
       marginLeft = max;
-    }
-    if (marginLeft < 0) {
-      marginLeft == 0;
     }
     console.log(marginLeft, "right", max);
     return _objectSpread(_objectSpread({}, state), {}, {
@@ -5151,58 +5148,12 @@ __webpack_require__.r(__webpack_exports__);
 
 
 
-
-/*const PreviewReducer=( state, [ type, data ] )=>{
-
-	if( type === "right"){
-		let list=[...state.list];
-		let max = list[list.length -1 ];
-		let marginLeft = state.marginLeft +120;
-
-		if(list.length >=  max){
-			marginLeft = 0
-		}
-
-		console.log(marginLeft, "right",max);
-
-		return{
-			...state,
-			list:list,
-			marginLeft: marginLeft
-		}
-	};
-
-	if( type === "left"){
-		let list=[...state.list];
-		let marginLeft = state.marginLeft -120;
-		console.log(marginLeft, "left");
-
-		if(list.length <=0){
-			marginLeft = list.length
-		}
-
-		return{
-			...state,
-			list:list,
-			marginLeft: marginLeft
-		}
-	};
-
-	return state;
-};
-*/
-
 var Preview = function Preview(props) {
   var _useContext = (0,react__WEBPACK_IMPORTED_MODULE_0__.useContext)(_components_Gallery_gallery__WEBPACK_IMPORTED_MODULE_2__.DotContext),
     dotIndex = _useContext.dotIndex,
     dotDispatch = _useContext.dotDispatch;
   var slider = (0,react__WEBPACK_IMPORTED_MODULE_0__.useRef)(null);
   var sliderWrap = (0,react__WEBPACK_IMPORTED_MODULE_0__.useRef)(null);
-
-  /*const [ state, dispatch ] = useReducer( PreviewReducer, {
-  	marginLeft:0
-  });*/
-
   return /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("section", {
     className: "dot-wrap-test"
   }, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("div", {
@@ -7108,7 +7059,7 @@ ___CSS_LOADER_EXPORT___.push([module.id, `.gallery-wrap {
   .dot-preview-list {
     position: relative;
     display: flex;
-    margin: 0px 17px 0px 17px;
+    padding: 0px 17px 0px 17px;
     overflow: hidden;
     transition: 0.8s; }
     .dot-preview-list-item {
@@ -7159,7 +7110,7 @@ ___CSS_LOADER_EXPORT___.push([module.id, `.gallery-wrap {
 
 .active {
   background: #7f8ba1 !important; }
-`, "",{"version":3,"sources":["webpack://./source/components/Gallery/styles/gallery.scss"],"names":[],"mappings":"AAAA;EACC,kBAAkB,EAAA;;AAEnB;EACC,kBAAkB;EAClB,aAAa,EAAA;;AAEd;EACC,kBAAkB;EAClB,aAAa;EACb,cAAc;EACd,mBAAmB,EAAA;EAEnB;IACC,kBAAkB;IAClB,gBAAgB,EAAA;EAGjB;IACC,kBAAkB;IAClB,aAAa;IACb,YAAY;IACZ,0BAA0B;IAC1B,mBAAmB,EAAA;IAEnB;MACC,kBAAkB;MAClB,WAAU;MACV,aAAa;MACb,UAAU;MACV,mBAAmB;MACnB,sBAAsB;MACtB,4BAA4B,EAAA;MAE5B;QACC,kBAAkB;QAClB,aAAa;QACb,6BAA6B;QAC7B,gBAAgB;QAChB,WAAW;QACX,gBAAgB;QAChB,eAAe;QACf,4BAA4B;QAC5B,mBAAmB,EAAA;EAKtB;IACC,kBAAkB;IAClB,aAAa;IACb,mBAAmB;IACnB,uBAAuB;IACvB,WAAW;IACX,eAAe;IACf,eAAe;IACf,cAAc;IACd,sBAAsB;IACtB,kBAAkB;IAClB,iBAAiB;IACjB,gCAAgC,EAAA;EAEjC;IACC,kBAAkB;IAClB,aAAa;IACb,mBAAmB;IACnB,uBAAuB;IACvB,WAAW;IACX,eAAe;IACf,eAAe;IACf,cAAc;IACd,sBAAsB;IACtB,iBAAiB;IACjB,iBAAiB;IACjB,gCAAgC,EAAA;EAGjC;IACC,kBAAkB;IAClB,mBAAmB;IACnB,0BAA0B;IAC1B,kBAAkB;IAClB,cAAc;IACd,sBAAsB;IACtB,eAAe,EAAA;;AAIjB;EACC,kBAAkB;EAClB,aAAa;EACb,WAAW,EAAA;;AAEZ;EACC,kBAAkB;EAClB,aAAa;EACb,uBAAuB;EACvB,gBAAgB,EAAA;EAEhB;IACC,kBAAkB;IAClB,YAAY;IACZ,WAAW;IACX,qBAAqB;IACrB,iBAAiB;IACjB,mBAAmB;IACnB,eAAe,EAAA;;AAGjB;EACC,kBAAkB;EAClB,aAAa;EACb,uBAAuB;EACvB,mBAAmB;EACnB,0BAA0B;EAC1B,mBAAmB;EACnB,0CAA0C;EAC1C,gBAAgB;EAChB,0BAA0B;EAC1B,yBAAyB;EACzB,gBAAgB;EAChB,UAAU,EAAA;EAEV;IACC,kBAAkB;IAClB,WAAW;IACX,aAAa,EAAA;EAGd;IACC,kBAAkB;IAClB,aAAa;IACb,yBAAyB;IACzB,gBAAgB;IAChB,gBAAgB,EAAA;IAEhB;MACC,kBAAkB;MAClB,YAAY;MACZ,YAAY;MACZ,iBAAiB;MACjB,sBAAsB;MACtB,4BAA4B;MAC5B,kBAAkB;MAClB,gBAAgB;MAChB,eAAe;MACf,yCAAyC;MACzC,cAAc,EAAA;IAEf;MACC,UAAU,EAAA;EAGZ;IACC,kBAAkB;IAClB,WAAW;IACX,SAAS;IACT,SAAS;IACT,cAAc;IACd,eAAe;IACf,gCAAgC;IAChC,qBAAqB;IACrB,0BAA0B;IAC1B,mBAAmB;IACnB,eAAe;IACf,2BAA2B;IAC3B,mCAAmC,EAAA;EAEpC;IACC,kBAAkB;IAClB,WAAW;IACX,UAAU;IACV,SAAS;IACT,cAAc;IACd,eAAe;IACf,gCAAgC;IAChC,qBAAqB;IACrB,0BAA0B;IAC1B,mBAAmB;IACnB,eAAe;IACf,2BAA2B;IAC3B,mCAAmC,EAAA;;AAGrC;EACC,kBAAkB,EAAA;;AAEnB;EACC,8BAA8B,EAAA","sourcesContent":[".gallery-wrap{\r\n\tposition: relative;\r\n}\r\n.gallery-wrap{\r\n\tposition: relative;\r\n\tdisplay: flex;\r\n}\r\n.gallery{\r\n\tposition: relative;\r\n\tdisplay: flex;\r\n\tmargin: 0 auto;\r\n\tborder-radius: 12px;\r\n\r\n\t&-wrap{\r\n\t\tposition: relative;\r\n\t\toverflow: hidden;\r\n\t}\r\n\r\n\t&-display{\r\n\t\tposition: relative;\r\n\t\tdisplay: flex;\r\n\t\twidth: 800px;\r\n\t\ttransition: transform 0.3s;\r\n\t\tborder-radius: 12px;\r\n\r\n\t\t&-item{\r\n\t\t\tposition: relative;\r\n\t\t\twidth:100%;\r\n\t\t\theight: 600px;\r\n\t\t\tflex: none;\r\n\t\t\tborder-radius: 12px;\r\n\t\t\tbackground-size: cover;\r\n\t\t\tbackground-repeat: no-repeat;\r\n\r\n\t\t\t&-text{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\tdisplay: flex;\r\n\t\t\t\tjustify-content: space-around;\r\n\t\t\t\talign-items: end;\r\n\t\t\t\twidth: 100%;\r\n\t\t\t\tcolor: #ffffffa3;\r\n\t\t\t\tfont-size: 35px;\r\n\t\t\t\tfont-family: Poppins-Regular;\r\n\t\t\t\tmargin-bottom: 32px;\r\n\t\t\t}\r\n\t\t}\r\n\t}\r\n\r\n\t&-prev{\r\n\t\tposition: relative;\r\n\t\tdisplay: flex;\r\n\t\talign-items: center;\r\n\t\tjustify-content: center;\r\n\t\twidth: 32px;\r\n\t\tcursor: pointer;\r\n\t\tfont-size: 53px;\r\n\t\tcolor: #c4bbf3;\r\n\t\tfont-family: monospace;\r\n\t\tmargin-right: 15px;\r\n\t\tuser-select: none;\r\n\t\ttext-shadow: 0px 0px 4px #a59a9a;\r\n\t}\r\n\t&-next{\r\n\t\tposition: relative;\r\n\t\tdisplay: flex;\r\n\t\talign-items: center;\r\n\t\tjustify-content: center;\r\n\t\twidth: 32px;\r\n\t\tcursor: pointer;\r\n\t\tfont-size: 53px;\r\n\t\tcolor: #c4bbf3;\r\n\t\tfont-family: monospace;\r\n\t\tmargin-left: 15px;\r\n\t\tuser-select: none;\r\n\t\ttext-shadow: 0px 0px 4px #a59a9a;\r\n\t}\r\n\r\n\t&-stop{\r\n\t\tposition: relative;\r\n\t\tbackground: #4f4c5b;\r\n\t\tpadding: 2px 10px 3px 10px;\r\n\t\tborder-radius: 5px;\r\n\t\tcolor: #9895a1;\r\n\t\tfont-family: monospace;\r\n\t\tcursor: pointer;\r\n\t}\r\n}\r\n\r\n.dot-wrap{\r\n\tposition: absolute;\r\n\tbottom: 216px;\r\n\twidth: 100%;\r\n}\r\n.dot{\r\n\tposition: relative;\r\n\tdisplay: flex;\r\n\tjustify-content: center;\r\n\tmargin-top: 20px;\r\n\r\n\t&-item{\r\n\t\tposition: relative;\r\n\t\theight: 15px;\r\n\t\twidth: 15px;\r\n\t\tbackground: #52524d59;\r\n\t\tmargin-right: 5px;\r\n\t\tborder-radius: 100%;\r\n\t\tcursor: pointer;\r\n\t}\r\n}\r\n.dot-preview{\r\n\tposition: relative;\r\n\tdisplay: flex;\r\n\tjustify-content: center;\r\n\tbackground: #241f38;\r\n\tpadding: 9px 18px 8px 16px;\r\n\tborder-radius: 10px;\r\n\tbox-shadow: inset 1px 1px 15px 0px #2f264d;\r\n\tmax-width: 800px;\r\n\tmargin: 20px auto 0px auto;\r\n\tborder: 1px solid #2c2a3b;\r\n\toverflow: hidden;\r\n\tz-index: 0;\r\n\r\n\t&-wrap{\r\n\t\tposition: relative;\r\n\t\twidth: 100%;\r\n\t\tdisplay: flex;\r\n\t}\r\n\r\n\t&-list{\r\n\t\tposition: relative;\r\n\t\tdisplay: flex;\r\n\t\tmargin: 0px 17px 0px 17px;\r\n\t\toverflow: hidden;\r\n\t\ttransition: 0.8s;\r\n\r\n\t\t&-item{\r\n\t\t\tposition: relative;\r\n\t\t\twidth: 100px;\r\n\t\t\theight: 58px;\r\n\t\t\tmargin-right: 5px;\r\n\t\t\tbackground-size: cover;\r\n\t\t\tbackground-repeat: no-repeat;\r\n\t\t\tborder-radius: 5px;\r\n\t\t\ttransition: 0.3s;\r\n\t\t\tcursor: pointer;\r\n\t\t\tbox-shadow: inset 1px 1px 7px 0px #706695;\r\n\t\t\tflex-shrink: 0;\r\n\t\t}\r\n\t\t&-item:hover{\r\n\t\t\topacity: 1;\r\n\t\t}\r\n\t}\r\n\t&-left{\r\n\t\tposition: absolute;\r\n\t\tz-index: 10;\r\n\t\tleft: 4px;\r\n\t\ttop: 14px;\r\n\t\tcolor: #c3b8fb;\r\n\t\tfont-size: 30px;\r\n\t\ttext-shadow: 0px 0px 5px #d9d0ff;\r\n\t\tbackground: #655b8f33;\r\n\t\tpadding: 5px 12px 3px 12px;\r\n\t\tborder-radius: 31px;\r\n\t\tcursor: pointer;\r\n\t\tborder: 1px solid #3c3b5d99;\r\n\t\tbox-shadow: 0px 0px 6px 1px #201933;\r\n\t}\r\n\t&-right{\r\n\t\tposition: absolute;\r\n\t\tz-index: 10;\r\n\t\tright: 4px;\r\n\t\ttop: 14px;\r\n\t\tcolor: #c3b8fb;\r\n\t\tfont-size: 30px;\r\n\t\ttext-shadow: 0px 0px 5px #d9d0ff;\r\n\t\tbackground: #655b8f33;\r\n\t\tpadding: 5px 12px 3px 12px;\r\n\t\tborder-radius: 31px;\r\n\t\tcursor: pointer;\r\n\t\tborder: 1px solid #3c3b5d99;\r\n\t\tbox-shadow: 0px 0px 6px 1px #201933;\r\n\t}\r\n}\r\n.dot-wrap-test{\r\n\tposition: relative;\r\n}\r\n.active{\r\n\tbackground: #7f8ba1 !important;\r\n}\r\n\r\n//#100f18,    background: #363245;  #bbb4d7; #241f38;#2e2943;#241f38241f38; #332d47"],"sourceRoot":""}]);
+`, "",{"version":3,"sources":["webpack://./source/components/Gallery/styles/gallery.scss"],"names":[],"mappings":"AAAA;EACC,kBAAkB,EAAA;;AAEnB;EACC,kBAAkB;EAClB,aAAa,EAAA;;AAEd;EACC,kBAAkB;EAClB,aAAa;EACb,cAAc;EACd,mBAAmB,EAAA;EAEnB;IACC,kBAAkB;IAClB,gBAAgB,EAAA;EAGjB;IACC,kBAAkB;IAClB,aAAa;IACb,YAAY;IACZ,0BAA0B;IAC1B,mBAAmB,EAAA;IAEnB;MACC,kBAAkB;MAClB,WAAU;MACV,aAAa;MACb,UAAU;MACV,mBAAmB;MACnB,sBAAsB;MACtB,4BAA4B,EAAA;MAE5B;QACC,kBAAkB;QAClB,aAAa;QACb,6BAA6B;QAC7B,gBAAgB;QAChB,WAAW;QACX,gBAAgB;QAChB,eAAe;QACf,4BAA4B;QAC5B,mBAAmB,EAAA;EAKtB;IACC,kBAAkB;IAClB,aAAa;IACb,mBAAmB;IACnB,uBAAuB;IACvB,WAAW;IACX,eAAe;IACf,eAAe;IACf,cAAc;IACd,sBAAsB;IACtB,kBAAkB;IAClB,iBAAiB;IACjB,gCAAgC,EAAA;EAEjC;IACC,kBAAkB;IAClB,aAAa;IACb,mBAAmB;IACnB,uBAAuB;IACvB,WAAW;IACX,eAAe;IACf,eAAe;IACf,cAAc;IACd,sBAAsB;IACtB,iBAAiB;IACjB,iBAAiB;IACjB,gCAAgC,EAAA;EAGjC;IACC,kBAAkB;IAClB,mBAAmB;IACnB,0BAA0B;IAC1B,kBAAkB;IAClB,cAAc;IACd,sBAAsB;IACtB,eAAe,EAAA;;AAIjB;EACC,kBAAkB;EAClB,aAAa;EACb,WAAW,EAAA;;AAEZ;EACC,kBAAkB;EAClB,aAAa;EACb,uBAAuB;EACvB,gBAAgB,EAAA;EAEhB;IACC,kBAAkB;IAClB,YAAY;IACZ,WAAW;IACX,qBAAqB;IACrB,iBAAiB;IACjB,mBAAmB;IACnB,eAAe,EAAA;;AAGjB;EACC,kBAAkB;EAClB,aAAa;EACb,uBAAuB;EACvB,mBAAmB;EACnB,0BAA0B;EAC1B,mBAAmB;EACnB,0CAA0C;EAC1C,gBAAgB;EAChB,0BAA0B;EAC1B,yBAAyB;EACzB,gBAAgB;EAChB,UAAU,EAAA;EAEV;IACC,kBAAkB;IAClB,WAAW;IACX,aAAa,EAAA;EAGd;IACC,kBAAkB;IAClB,aAAa;IACb,0BAA0B;IAC1B,gBAAgB;IAChB,gBAAgB,EAAA;IAEhB;MACC,kBAAkB;MAClB,YAAY;MACZ,YAAY;MACZ,iBAAiB;MACjB,sBAAsB;MACtB,4BAA4B;MAC5B,kBAAkB;MAClB,gBAAgB;MAChB,eAAe;MACf,yCAAyC;MACzC,cAAc,EAAA;IAEf;MACC,UAAU,EAAA;EAGZ;IACC,kBAAkB;IAClB,WAAW;IACX,SAAS;IACT,SAAS;IACT,cAAc;IACd,eAAe;IACf,gCAAgC;IAChC,qBAAqB;IACrB,0BAA0B;IAC1B,mBAAmB;IACnB,eAAe;IACf,2BAA2B;IAC3B,mCAAmC,EAAA;EAEpC;IACC,kBAAkB;IAClB,WAAW;IACX,UAAU;IACV,SAAS;IACT,cAAc;IACd,eAAe;IACf,gCAAgC;IAChC,qBAAqB;IACrB,0BAA0B;IAC1B,mBAAmB;IACnB,eAAe;IACf,2BAA2B;IAC3B,mCAAmC,EAAA;;AAGrC;EACC,kBAAkB,EAAA;;AAEnB;EACC,8BAA8B,EAAA","sourcesContent":[".gallery-wrap{\r\n\tposition: relative;\r\n}\r\n.gallery-wrap{\r\n\tposition: relative;\r\n\tdisplay: flex;\r\n}\r\n.gallery{\r\n\tposition: relative;\r\n\tdisplay: flex;\r\n\tmargin: 0 auto;\r\n\tborder-radius: 12px;\r\n\r\n\t&-wrap{\r\n\t\tposition: relative;\r\n\t\toverflow: hidden;\r\n\t}\r\n\r\n\t&-display{\r\n\t\tposition: relative;\r\n\t\tdisplay: flex;\r\n\t\twidth: 800px;\r\n\t\ttransition: transform 0.3s;\r\n\t\tborder-radius: 12px;\r\n\r\n\t\t&-item{\r\n\t\t\tposition: relative;\r\n\t\t\twidth:100%;\r\n\t\t\theight: 600px;\r\n\t\t\tflex: none;\r\n\t\t\tborder-radius: 12px;\r\n\t\t\tbackground-size: cover;\r\n\t\t\tbackground-repeat: no-repeat;\r\n\r\n\t\t\t&-text{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\tdisplay: flex;\r\n\t\t\t\tjustify-content: space-around;\r\n\t\t\t\talign-items: end;\r\n\t\t\t\twidth: 100%;\r\n\t\t\t\tcolor: #ffffffa3;\r\n\t\t\t\tfont-size: 35px;\r\n\t\t\t\tfont-family: Poppins-Regular;\r\n\t\t\t\tmargin-bottom: 32px;\r\n\t\t\t}\r\n\t\t}\r\n\t}\r\n\r\n\t&-prev{\r\n\t\tposition: relative;\r\n\t\tdisplay: flex;\r\n\t\talign-items: center;\r\n\t\tjustify-content: center;\r\n\t\twidth: 32px;\r\n\t\tcursor: pointer;\r\n\t\tfont-size: 53px;\r\n\t\tcolor: #c4bbf3;\r\n\t\tfont-family: monospace;\r\n\t\tmargin-right: 15px;\r\n\t\tuser-select: none;\r\n\t\ttext-shadow: 0px 0px 4px #a59a9a;\r\n\t}\r\n\t&-next{\r\n\t\tposition: relative;\r\n\t\tdisplay: flex;\r\n\t\talign-items: center;\r\n\t\tjustify-content: center;\r\n\t\twidth: 32px;\r\n\t\tcursor: pointer;\r\n\t\tfont-size: 53px;\r\n\t\tcolor: #c4bbf3;\r\n\t\tfont-family: monospace;\r\n\t\tmargin-left: 15px;\r\n\t\tuser-select: none;\r\n\t\ttext-shadow: 0px 0px 4px #a59a9a;\r\n\t}\r\n\r\n\t&-stop{\r\n\t\tposition: relative;\r\n\t\tbackground: #4f4c5b;\r\n\t\tpadding: 2px 10px 3px 10px;\r\n\t\tborder-radius: 5px;\r\n\t\tcolor: #9895a1;\r\n\t\tfont-family: monospace;\r\n\t\tcursor: pointer;\r\n\t}\r\n}\r\n\r\n.dot-wrap{\r\n\tposition: absolute;\r\n\tbottom: 216px;\r\n\twidth: 100%;\r\n}\r\n.dot{\r\n\tposition: relative;\r\n\tdisplay: flex;\r\n\tjustify-content: center;\r\n\tmargin-top: 20px;\r\n\r\n\t&-item{\r\n\t\tposition: relative;\r\n\t\theight: 15px;\r\n\t\twidth: 15px;\r\n\t\tbackground: #52524d59;\r\n\t\tmargin-right: 5px;\r\n\t\tborder-radius: 100%;\r\n\t\tcursor: pointer;\r\n\t}\r\n}\r\n.dot-preview{\r\n\tposition: relative;\r\n\tdisplay: flex;\r\n\tjustify-content: center;\r\n\tbackground: #241f38;\r\n\tpadding: 9px 18px 8px 16px;\r\n\tborder-radius: 10px;\r\n\tbox-shadow: inset 1px 1px 15px 0px #2f264d;\r\n\tmax-width: 800px;\r\n\tmargin: 20px auto 0px auto;\r\n\tborder: 1px solid #2c2a3b;\r\n\toverflow: hidden;\r\n\tz-index: 0;\r\n\r\n\t&-wrap{\r\n\t\tposition: relative;\r\n\t\twidth: 100%;\r\n\t\tdisplay: flex;\r\n\t}\r\n\r\n\t&-list{\r\n\t\tposition: relative;\r\n\t\tdisplay: flex;\r\n\t\tpadding: 0px 17px 0px 17px;\r\n\t\toverflow: hidden;\r\n\t\ttransition: 0.8s;\r\n\r\n\t\t&-item{\r\n\t\t\tposition: relative;\r\n\t\t\twidth: 100px;\r\n\t\t\theight: 58px;\r\n\t\t\tmargin-right: 5px;\r\n\t\t\tbackground-size: cover;\r\n\t\t\tbackground-repeat: no-repeat;\r\n\t\t\tborder-radius: 5px;\r\n\t\t\ttransition: 0.3s;\r\n\t\t\tcursor: pointer;\r\n\t\t\tbox-shadow: inset 1px 1px 7px 0px #706695;\r\n\t\t\tflex-shrink: 0;\r\n\t\t}\r\n\t\t&-item:hover{\r\n\t\t\topacity: 1;\r\n\t\t}\r\n\t}\r\n\t&-left{\r\n\t\tposition: absolute;\r\n\t\tz-index: 10;\r\n\t\tleft: 4px;\r\n\t\ttop: 14px;\r\n\t\tcolor: #c3b8fb;\r\n\t\tfont-size: 30px;\r\n\t\ttext-shadow: 0px 0px 5px #d9d0ff;\r\n\t\tbackground: #655b8f33;\r\n\t\tpadding: 5px 12px 3px 12px;\r\n\t\tborder-radius: 31px;\r\n\t\tcursor: pointer;\r\n\t\tborder: 1px solid #3c3b5d99;\r\n\t\tbox-shadow: 0px 0px 6px 1px #201933;\r\n\t}\r\n\t&-right{\r\n\t\tposition: absolute;\r\n\t\tz-index: 10;\r\n\t\tright: 4px;\r\n\t\ttop: 14px;\r\n\t\tcolor: #c3b8fb;\r\n\t\tfont-size: 30px;\r\n\t\ttext-shadow: 0px 0px 5px #d9d0ff;\r\n\t\tbackground: #655b8f33;\r\n\t\tpadding: 5px 12px 3px 12px;\r\n\t\tborder-radius: 31px;\r\n\t\tcursor: pointer;\r\n\t\tborder: 1px solid #3c3b5d99;\r\n\t\tbox-shadow: 0px 0px 6px 1px #201933;\r\n\t}\r\n}\r\n.dot-wrap-test{\r\n\tposition: relative;\r\n}\r\n.active{\r\n\tbackground: #7f8ba1 !important;\r\n}\r\n\r\n//#100f18,    background: #363245;  #bbb4d7; #241f38;#2e2943;#241f38241f38; #332d47"],"sourceRoot":""}]);
 // Exports
 /* harmony default export */ const __WEBPACK_DEFAULT_EXPORT__ = (___CSS_LOADER_EXPORT___);
 
