@@ -7,8 +7,9 @@ import {Link} from "react-router-dom";
 import {Calc2} from "@components/Calc2/calc2";
 import {SelectorJson} from "@components/Selector-json/selector-json";
 import {DataTable } from "@components/Data-Table/data.table";
-import { Schedule } from "@components/Schedule/schedule";
 import {Gallery } from "@components/Gallery/gallery";
+import {Tree } from "@components/Tree/tree";
+
 
 const AppReducer = ( state, [ type, data ] ) => {
 
@@ -29,8 +30,8 @@ export const App = () => {
 		{id:0,element: <Calc2/>, path:"/calc", title:"Calc", key: "Calc", icon:"" },
 		{id:1, element: <SelectorJson/>, path:"/selector", title:"Selector", key: "Selector", icon:""  },
 		{id:2, element: <DataTable/>, path:"/table", title:"Table", key: "Table", icon:""  },
-		{id:3, element: <Schedule/>, path:"/schedule", title:"Schedule", key: "Schedule", icon:""  },
-		{id:4, element: <Gallery/>, path:"/gallery", title:"Gallery", key: "Gallery", icon:""  },
+		{id:3, element: <Gallery/>, path:"/gallery", title:"Gallery", key: "Gallery", icon:""  },
+		{id:4, element: <Tree/>, path:"/tree", title:"Tree", key: "Tree", icon:""  },
 	];
 
 	return (
