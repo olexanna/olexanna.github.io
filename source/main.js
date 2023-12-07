@@ -7,6 +7,8 @@ import "@styles/fonts.scss";
 const container = document.getElementById( "main" );
 const root = ReactDOM.createRoot( container );
 
+console.log( 456 );
+
 root.render(
 	<BrowserRouter>
 		<App/>
