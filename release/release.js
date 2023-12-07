@@ -5533,9 +5533,7 @@ var Child = function Child(props) {
       }]);
     }
   }, "\u2193"), /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("div", {
-    className: "tree-child-text",
-    contentEditable: true,
-    spellCheck: false
+    className: "tree-child-text"
   }, props.title), /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("p", {
     className: "child-btn"
   }, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("span", {
@@ -5551,14 +5549,7 @@ var Child = function Child(props) {
         parentId: parentId
       }]);
     }
-  }, "-"), /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("span", {
-    className: "child-btn-change",
-    onChange: function onChange(event) {
-      dispatch(["change", {
-        value: event.target.value
-      }]);
-    }
-  }, ""))), /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("div", {
+  }, "-"))), /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("div", {
     className: "tree-children " + mark
   }, props.children.map(function (unit, index) {
     return /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement(Child, {
@@ -5648,15 +5639,7 @@ var TreeReducer = function TreeReducer(state, _ref) {
     return _objectSpread(_objectSpread({}, state), {}, {
       table: _table2
     });
-  } else if (type == "change") {
-    var _table3 = _objectSpread({}, state.table);
-    var value = _defineProperty({}, data.key, data.value);
-    return _objectSpread(_objectSpread({}, state), {}, {
-      table: _table3,
-      value: value
-    });
   }
-  ;
   return state;
 };
 var Tree = function Tree(props) {
@@ -5700,17 +5683,6 @@ var Tree = function Tree(props) {
     });
   }))));
 };
-
-/*
-<div className={"tree-list-child " + ( line.point)} key={item.id}>
-<p className={"tree-list-child-text"}>{item.title}</p>
-
-<p className={"child-btn"}>
-	<span className={"child-btn-add"}>{"+"}</span>
-	<span className={"child-btn-remove"}>{"-"}</span>
-</p>
-</div>
-*/
 
 /***/ }),
 
