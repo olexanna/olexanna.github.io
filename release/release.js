@@ -5968,12 +5968,14 @@ __webpack_require__.r(__webpack_exports__);
 var ___CSS_LOADER_URL_IMPORT_0___ = new URL(/* asset import */ __webpack_require__(/*! ../../../assets/fonts/Roboto-Regular.ttf */ "./assets/fonts/Roboto-Regular.ttf"), __webpack_require__.b);
 var ___CSS_LOADER_URL_IMPORT_1___ = new URL(/* asset import */ __webpack_require__(/*! ../../../assets/fonts/Poppins-Medium.ttf */ "./assets/fonts/Poppins-Medium.ttf"), __webpack_require__.b);
 var ___CSS_LOADER_URL_IMPORT_2___ = new URL(/* asset import */ __webpack_require__(/*! ../../../assets/fonts/Poppins-Regular.ttf */ "./assets/fonts/Poppins-Regular.ttf"), __webpack_require__.b);
-var ___CSS_LOADER_URL_IMPORT_3___ = new URL(/* asset import */ __webpack_require__(/*! ../../../assets/fonts/IcoMoon-Free.ttf */ "./assets/fonts/IcoMoon-Free.ttf"), __webpack_require__.b);
+var ___CSS_LOADER_URL_IMPORT_3___ = new URL(/* asset import */ __webpack_require__(/*! ../../../assets/fonts/RobotoMono-Regular.ttf */ "./assets/fonts/RobotoMono-Regular.ttf"), __webpack_require__.b);
+var ___CSS_LOADER_URL_IMPORT_4___ = new URL(/* asset import */ __webpack_require__(/*! ../../../assets/fonts/IcoMoon-Free.ttf */ "./assets/fonts/IcoMoon-Free.ttf"), __webpack_require__.b);
 var ___CSS_LOADER_EXPORT___ = _node_modules_css_loader_dist_runtime_api_js__WEBPACK_IMPORTED_MODULE_1___default()((_node_modules_css_loader_dist_runtime_sourceMaps_js__WEBPACK_IMPORTED_MODULE_0___default()));
 var ___CSS_LOADER_URL_REPLACEMENT_0___ = _node_modules_css_loader_dist_runtime_getUrl_js__WEBPACK_IMPORTED_MODULE_2___default()(___CSS_LOADER_URL_IMPORT_0___);
 var ___CSS_LOADER_URL_REPLACEMENT_1___ = _node_modules_css_loader_dist_runtime_getUrl_js__WEBPACK_IMPORTED_MODULE_2___default()(___CSS_LOADER_URL_IMPORT_1___);
 var ___CSS_LOADER_URL_REPLACEMENT_2___ = _node_modules_css_loader_dist_runtime_getUrl_js__WEBPACK_IMPORTED_MODULE_2___default()(___CSS_LOADER_URL_IMPORT_2___);
 var ___CSS_LOADER_URL_REPLACEMENT_3___ = _node_modules_css_loader_dist_runtime_getUrl_js__WEBPACK_IMPORTED_MODULE_2___default()(___CSS_LOADER_URL_IMPORT_3___);
+var ___CSS_LOADER_URL_REPLACEMENT_4___ = _node_modules_css_loader_dist_runtime_getUrl_js__WEBPACK_IMPORTED_MODULE_2___default()(___CSS_LOADER_URL_IMPORT_4___);
 // Module
 ___CSS_LOADER_EXPORT___.push([module.id, `@font-face {
   font-family: 'Roboto';
@@ -5991,10 +5993,15 @@ ___CSS_LOADER_EXPORT___.push([module.id, `@font-face {
   font-weight: normal; }
 
 @font-face {
-  font-family: 'IcoMoon-Free';
+  font-family: 'RobotoMono-Regular';
   src: url(${___CSS_LOADER_URL_REPLACEMENT_3___});
   font-weight: normal; }
-`, "",{"version":3,"sources":["webpack://./assets/styles/fonts.scss"],"names":[],"mappings":"AAAA;EACC,qBAAqB;EACrB,4CAA6C;EAC7C,mBAAmB,EAAA;;AAEpB;EACC,6BAA6B;EAC7B,4CAA6C;EAC7C,mBAAmB,EAAA;;AAEpB;EACC,8BAA8B;EAC9B,4CAA8C;EAC9C,mBAAmB,EAAA;;AAEpB;EACC,2BAA2B;EAC3B,4CAA2C;EAC3C,mBAAmB,EAAA","sourcesContent":["@font-face {\r\n\tfont-family: 'Roboto';\r\n\tsrc: url( '/assets/fonts/Roboto-Regular.ttf');\r\n\tfont-weight: normal;\r\n}\r\n@font-face {\r\n\tfont-family: 'Poppins-Medium';\r\n\tsrc: url( '/assets/fonts/Poppins-Medium.ttf');\r\n\tfont-weight: normal;\r\n}\r\n@font-face {\r\n\tfont-family: 'Poppins-Regular';\r\n\tsrc: url( '/assets/fonts/Poppins-Regular.ttf');\r\n\tfont-weight: normal;\r\n}\r\n@font-face {\r\n\tfont-family: 'IcoMoon-Free';\r\n\tsrc: url( '/assets/fonts/IcoMoon-Free.ttf');\r\n\tfont-weight: normal;\r\n}"],"sourceRoot":""}]);
+
+@font-face {
+  font-family: 'IcoMoon-Free';
+  src: url(${___CSS_LOADER_URL_REPLACEMENT_4___});
+  font-weight: normal; }
+`, "",{"version":3,"sources":["webpack://./assets/styles/fonts.scss"],"names":[],"mappings":"AAAA;EACC,qBAAqB;EACrB,4CAA6C;EAC7C,mBAAmB,EAAA;;AAEpB;EACC,6BAA6B;EAC7B,4CAA6C;EAC7C,mBAAmB,EAAA;;AAEpB;EACC,8BAA8B;EAC9B,4CAA8C;EAC9C,mBAAmB,EAAA;;AAEpB;EACC,iCAAiC;EACjC,4CAAiD;EACjD,mBAAmB,EAAA;;AAEpB;EACC,2BAA2B;EAC3B,4CAA2C;EAC3C,mBAAmB,EAAA","sourcesContent":["@font-face {\r\n\tfont-family: 'Roboto';\r\n\tsrc: url( '/assets/fonts/Roboto-Regular.ttf');\r\n\tfont-weight: normal;\r\n}\r\n@font-face {\r\n\tfont-family: 'Poppins-Medium';\r\n\tsrc: url( '/assets/fonts/Poppins-Medium.ttf');\r\n\tfont-weight: normal;\r\n}\r\n@font-face {\r\n\tfont-family: 'Poppins-Regular';\r\n\tsrc: url( '/assets/fonts/Poppins-Regular.ttf');\r\n\tfont-weight: normal;\r\n}\r\n@font-face {\r\n\tfont-family: 'RobotoMono-Regular';\r\n\tsrc: url( '/assets/fonts/RobotoMono-Regular.ttf');\r\n\tfont-weight: normal;\r\n}\r\n@font-face {\r\n\tfont-family: 'IcoMoon-Free';\r\n\tsrc: url( '/assets/fonts/IcoMoon-Free.ttf');\r\n\tfont-weight: normal;\r\n}"],"sourceRoot":""}]);
 // Exports
 /* harmony default export */ const __WEBPACK_DEFAULT_EXPORT__ = (___CSS_LOADER_EXPORT___);
 
@@ -44256,6 +44263,16 @@ module.exports = __webpack_require__.p + "35d26b781dc5fda684cc.ttf";
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
 module.exports = __webpack_require__.p + "03523cf578d69fa92322.ttf";
+
+/***/ }),
+
+/***/ "./assets/fonts/RobotoMono-Regular.ttf":
+/*!*********************************************!*\
+  !*** ./assets/fonts/RobotoMono-Regular.ttf ***!
+  \*********************************************/
+/***/ ((module, __unused_webpack_exports, __webpack_require__) => {
+
+module.exports = __webpack_require__.p + "34e46962590bff8eefe5.ttf";
 
 /***/ }),
 
