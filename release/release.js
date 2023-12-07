@@ -4444,7 +4444,7 @@ var Calc2 = function Calc2(props) {
     className: "calc2-btn"
   }, Calc2Nums.map(function (item) {
     return /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("p", {
-      className: "calc2-btn-item " + (state.swipe ? "calc2-btn-item-light" : " "),
+      className: "calc2-btn-item " + (state.swipe ? "calc2-btn-item-light" : ""),
       key: item.key,
       onClick: function onClick() {
         return dispatch(["val", {

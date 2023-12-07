@@ -315,7 +315,7 @@ export const Calc2 = ( props ) => {
 							{
 								Calc2Nums.map(( item)=>{
 									return(
-										<p className={"calc2-btn-item "+ (state.swipe ? "calc2-btn-item-light" : " ")} key={item.key} onClick={() => dispatch([ "val", { value: item.value, key: item.key} ]) }>
+										<p className={"calc2-btn-item " + (state.swipe ? "calc2-btn-item-light" : "")} key={item.key} onClick={() => dispatch([ "val", { value: item.value, key: item.key} ]) }>
 											{item.value}
 										</p>
 									)

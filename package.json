@@ -16,7 +16,7 @@
   "bugs": {
     "url": "https://github.com/olexanna/table/issues"
   },
-  "homepage": "https://github.com/olexanna/table#readme",
+  "homepage": "./",
   "dependencies": {
     "@babel/core": "^7.20.5",
     "@babel/preset-env": "^7.20.2",
