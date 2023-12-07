@@ -24,6 +24,7 @@
     "all-spanish-cities": "^1.0.1",
     "babel-loader": "^9.1.0",
     "cities.json": "^1.1.20",
+    "copyfiles": "^2.4.1",
     "country-cities": "^1.0.7",
     "css-loader": "^6.7.2",
     "html-webpack-plugin": "^5.5.0",
