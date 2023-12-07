@@ -44353,7 +44353,7 @@ module.exports = __webpack_require__.p + "0dee36ec105e13542938.jpg";
 /******/ 	
 /******/ 	/* webpack/runtime/publicPath */
 /******/ 	(() => {
-/******/ 		__webpack_require__.p = "/release";
+/******/ 		__webpack_require__.p = "/release/";
 /******/ 	})();
 /******/ 	
 /******/ 	/* webpack/runtime/jsonp chunk loading */

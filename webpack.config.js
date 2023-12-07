@@ -6,7 +6,7 @@ module.exports = {
 	output: {
 		path: path.join(__dirname, "/release"),
 		filename: "release.js",
-		publicPath: "/release"
+		publicPath: "/release/"
 	},
 	mode: "development",
 	devtool: 'source-map',
