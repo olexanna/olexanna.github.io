@@ -44493,6 +44493,7 @@ __webpack_require__.r(__webpack_exports__);
 
 var container = document.getElementById("main");
 var root = react_dom_client__WEBPACK_IMPORTED_MODULE_1__.createRoot(container);
+console.log(456);
 root.render( /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement(react_router_dom__WEBPACK_IMPORTED_MODULE_4__.BrowserRouter, null, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement(_modules_app__WEBPACK_IMPORTED_MODULE_2__.App, null)));
 })();
 
