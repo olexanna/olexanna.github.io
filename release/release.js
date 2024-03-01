@@ -5249,7 +5249,7 @@ var SelectorJsonReducer = function SelectorJsonReducer(state, _ref, props) {
       return item.key === data.key;
     });
     console.log(index, "check");
-    if (index > -1) {
+    if (index) {
       select.splice(index, 1);
     } else {
       select.push({
@@ -7203,7 +7203,7 @@ ___CSS_LOADER_EXPORT___.push([module.id, `.tree {
   position: relative;
   width: 100%;
   height: 100%;
-  background: #2f2f49;
+  background: #27192f;
   border-radius: 5px;
   padding: 10px 10px 10px 10px; }
   .tree-add-wrap {
@@ -7211,27 +7211,27 @@ ___CSS_LOADER_EXPORT___.push([module.id, `.tree {
   .tree-add {
     position: relative;
     display: flex;
-    background: white;
+    background: #3e294b;
     align-items: center;
     width: fit-content;
     padding: 5px 7px 5px 8px;
     border-radius: 15px;
-    cursor: pointer; }
+    cursor: pointer;
+    border: 1px solid #4b335b; }
     .tree-add-text {
       position: relative;
       font-family: "Roboto";
       font-size: 15px;
       margin-right: 6px;
-      color: #2e0c59;
+      color: #ffffff;
       text-shadow: 0px 0px 0px #563789; }
     .tree-add-btn {
       position: relative;
-      background: #41346f;
+      background: #503d65;
       padding: 0px 5px 0px 5px;
       border-radius: 100%;
       color: white;
-      font-family: 'Roboto';
-      box-shadow: 0px 0px 5px 1px #ffffff; }
+      font-family: 'Roboto'; }
   .tree-body {
     position: relative;
     margin-top: 17px;
@@ -7293,13 +7293,13 @@ ___CSS_LOADER_EXPORT___.push([module.id, `.tree {
       position: relative;
       display: flex;
       align-items: center;
-      background: #32324d;
+      background: #2a1c33;
       border-radius: 2px;
       padding: 3px 0px 3px 5px;
       color: #d6d5ff;
       font-family: 'Roboto';
       font-size: 15px;
-      border: 1px solid #36364f; }
+      border: 1px solid #2e1d39; }
   .tree .child-btn {
     position: relative;
     display: flex; }
@@ -7341,12 +7341,12 @@ ___CSS_LOADER_EXPORT___.push([module.id, `.tree {
     padding: 0px 0px 0px 0px; }
   .tree-children > div {
     padding: 0px 0px 0px 10px;
-    background: #28283d; }
+    background: #291b31; }
 
 .arrow-down {
   transform: rotate(180deg);
   background: #1f1f3b; }
-`, "",{"version":3,"sources":["webpack://./source/components/Tree/styles/tree.scss"],"names":[],"mappings":"AAAA;EACC,kBAAkB;EAClB,WAAW;EACX,YAAY;EACZ,mBAAmB;EACnB,kBAAkB;EAClB,4BAA4B,EAAA;EAE5B;IACC,kBAAkB,EAAA;EAGnB;IACC,kBAAkB;IAClB,aAAa;IACb,iBAAiB;IACjB,mBAAmB;IACnB,kBAAkB;IAClB,wBAAwB;IACxB,mBAAmB;IACnB,eAAe,EAAA;IAEf;MACC,kBAAkB;MAClB,qBAAqB;MACrB,eAAe;MACf,iBAAiB;MACjB,cAAc;MACd,gCAAgC,EAAA;IAEjC;MACC,kBAAkB;MAClB,mBAAkB;MAClB,wBAAwB;MACxB,mBAAmB;MACnB,YAAY;MACZ,qBAAqB;MACrB,mCAAmC,EAAA;EAIrC;IACC,kBAAkB;IAClB,gBAAgB;IAChB,wBAAwB;IACxB,kBAAkB;IAClB,cAAc;IACd,iBAAiB,EAAA;EAGjB;IACC,kBAAkB;IAClB,aAAa,EAAA;IAEb;MACC,kBAAkB;MAClB,eAAe;MACf,uBAAuB,EAAA;IAExB;MACC,kBAAkB;MAClB,eAAe;MACf,mBAAmB;MACnB,mBAAmB;MACnB,WAAW;MACX,YAAY;MACZ,aAAa;MACb,uBAAuB;MACvB,YAAY;MACZ,eAAe,EAAA;IAEhB;MACC,kBAAkB;MAClB,eAAe;MACf,mBAAmB;MACnB,mBAAmB;MACnB,WAAW;MACX,YAAY;MACZ,aAAa;MACb,uBAAuB;MACvB,YAAY;MACZ,eAAe,EAAA;EAIjB;IACC,kBAAkB;IAClB,kBAAkB;IAClB,aAAa;IACb,sBAAsB,EAAA;IAEtB;MACC,kBAAkB;MAClB,WAAW;MACX,YAAY;MACZ,mBAAmB;MACnB,mBAAmB;MACnB,WAAW;MACX,aAAa;MACb,eAAe;MACf,qBAAqB;MACrB,uBAAuB;MACvB,iBAAiB;MACjB,eAAe,EAAA;IAGhB;MACC,kBAAkB;MAClB,iBAAiB,EAAA;IAGlB;MACC,kBAAkB;MAClB,aAAa;MACb,mBAAmB;MACnB,mBAAmB;MACnB,kBAAkB;MAClB,wBAAwB;MACxB,cAAc;MACd,qBAAqB;MACrB,eAAe;MACf,yBAAyB,EAAA;EAzH7B;IA8HG,kBAAkB;IAClB,aAAa,EAAA;IA/HhB;MAkII,kBAAkB;MAClB,WAAW;MACX,YAAY;MACZ,iBAAiB;MACjB,kBAAkB;MAClB,eAAe;MACf,kBAAkB;MAClB,iBAAiB;MACjB,qBAAqB;MACrB,eAAe,EAAA;IA3InB;MA8II,kBAAkB;MAClB,WAAW;MACX,YAAY;MACZ,mBAAmB;MACnB,iBAAiB;MACjB,kBAAkB;MAClB,eAAe;MACf,kBAAkB;MAClB,eAAe;MACf,yBAAyB;MACzB,iBAAiB,EAAA;IAxJrB;MA2JI,kBAAkB;MAClB,WAAW;MACX,YAAY;MACZ,mBAAmB;MACnB,mBAAmB;MACnB,eAAe,EAAA;EAIjB;IACC,kBAAkB;IAClB,aAAa;IACb,sBAAsB;IACtB,eAAe;IACf,wBAAwB,EAAA;EAGzB;IACC,yBAAyB;IACzB,mBAAmB,EAAA;;AAKtB;EACC,yBAAyB;EACzB,mBAAmB,EAAA","sourcesContent":[".tree{\r\n\tposition: relative;\r\n\twidth: 100%;\r\n\theight: 100%;\r\n\tbackground: #2f2f49;\r\n\tborder-radius: 5px;\r\n\tpadding: 10px 10px 10px 10px;\r\n\r\n\t&-add-wrap{\r\n\t\tposition: relative;\r\n\t}\r\n\r\n\t&-add{\r\n\t\tposition: relative;\r\n\t\tdisplay: flex;\r\n\t\tbackground: white;\r\n\t\talign-items: center;\r\n\t\twidth: fit-content;\r\n\t\tpadding: 5px 7px 5px 8px;\r\n\t\tborder-radius: 15px;\r\n\t\tcursor: pointer;\r\n\r\n\t\t&-text{\r\n\t\t\tposition: relative;\r\n\t\t\tfont-family: \"Roboto\";\r\n\t\t\tfont-size: 15px;\r\n\t\t\tmargin-right: 6px;\r\n\t\t\tcolor: #2e0c59;\r\n\t\t\ttext-shadow: 0px 0px 0px #563789;\r\n\t\t}\r\n\t\t&-btn{\r\n\t\t\tposition: relative;\r\n\t\t\tbackground:#41346f;\r\n\t\t\tpadding: 0px 5px 0px 5px;\r\n\t\t\tborder-radius: 100%;\r\n\t\t\tcolor: white;\r\n\t\t\tfont-family: 'Roboto';\r\n\t\t\tbox-shadow: 0px 0px 5px 1px #ffffff;\r\n\t\t}\r\n\t}\r\n\r\n\t&-body{\r\n\t\tposition: relative;\r\n\t\tmargin-top: 17px;\r\n\t\tpadding: 3px 4px 5px 3px;\r\n\t\tborder-radius: 7px;\r\n\t\toverflow: auto;\r\n\t\tmax-height: 800px;\r\n\t}\r\n\r\n\t\t&-title{\r\n\t\t\tposition: relative;\r\n\t\t\tdisplay: flex;\r\n\r\n\t\t\t&-text{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\tfont-size: 15px;\r\n\t\t\t\tmargin: 0px 5px 0px 5px;\r\n\t\t\t}\r\n\t\t\t&-add{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\tfont-size: 16px;\r\n\t\t\t\tbackground: #3f3f5b;\r\n\t\t\t\tborder-radius: 100%;\r\n\t\t\t\twidth: 18px;\r\n\t\t\t\theight: 18px;\r\n\t\t\t\tdisplay: flex;\r\n\t\t\t\tjustify-content: center;\r\n\t\t\t\tcolor: white;\r\n\t\t\t\tcursor: pointer;\r\n\t\t\t}\r\n\t\t\t&-arr{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\tfont-size: 13px;\r\n\t\t\t\tbackground: #5d5d83;\r\n\t\t\t\tborder-radius: 100%;\r\n\t\t\t\twidth: 18px;\r\n\t\t\t\theight: 18px;\r\n\t\t\t\tdisplay: flex;\r\n\t\t\t\tjustify-content: center;\r\n\t\t\t\tcolor: white;\r\n\t\t\t\tcursor: pointer;\r\n\t\t\t}\r\n\t\t}\r\n\r\n\t\t&-child{\r\n\t\t\tposition: relative;\r\n\t\t\tmargin-bottom: 3px;\r\n\t\t\tdisplay: flex;\r\n\t\t\tflex-direction: column;\r\n\r\n\t\t\t&-expand{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\twidth: 18px;\r\n\t\t\t\theight: 18px;\r\n\t\t\t\tbackground: #e2e6ff;\r\n\t\t\t\tborder-radius: 100%;\r\n\t\t\t\tcolor: gray;\r\n\t\t\t\tdisplay: flex;\r\n\t\t\t\tfont-size: 17px;\r\n\t\t\t\talign-items: flex-end;\r\n\t\t\t\tjustify-content: center;\r\n\t\t\t\tmargin-right: 4px;\r\n\t\t\t\tcursor: pointer;\r\n\t\t\t}\r\n\r\n\t\t\t&-text{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\tmargin-right: 5px;\r\n\t\t\t}\r\n\r\n\t\t\t&-wrap{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\tdisplay: flex;\r\n\t\t\t\talign-items: center;\r\n\t\t\t\tbackground: #32324d;\r\n\t\t\t\tborder-radius: 2px;\r\n\t\t\t\tpadding: 3px 0px 3px 5px;\r\n\t\t\t\tcolor: #d6d5ff;\r\n\t\t\t\tfont-family: 'Roboto';\r\n\t\t\t\tfont-size: 15px;\r\n\t\t\t\tborder: 1px solid #36364f;\r\n\t\t\t}\r\n\t\t}\r\n\r\n\t\t.child-btn{\r\n\t\t\tposition: relative;\r\n\t\t\tdisplay: flex;\r\n\r\n\t\t\t&-add{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\twidth: 13px;\r\n\t\t\t\theight: 13px;\r\n\t\t\t\tline-height: 13px;\r\n\t\t\t\ttext-align: center;\r\n\t\t\t\tfont-size: 11px;\r\n\t\t\t\tborder-radius: 4px;\r\n\t\t\t\tmargin-right: 4px;\r\n\t\t\t\tbackground: #d9d2ff70;\r\n\t\t\t\tcursor: pointer;\r\n\t\t\t}\r\n\t\t\t&-remove{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\twidth: 13px;\r\n\t\t\t\theight: 13px;\r\n\t\t\t\tbackground: #3a3856;\r\n\t\t\t\tline-height: 10px;\r\n\t\t\t\ttext-align: center;\r\n\t\t\t\tfont-size: 15px;\r\n\t\t\t\tborder-radius: 4px;\r\n\t\t\t\tcursor: pointer;\r\n\t\t\t\tborder: 1px solid #494e6f;\r\n\t\t\t\tmargin-right: 4px;\r\n\t\t\t}\r\n\t\t\t&-change{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\twidth: 13px;\r\n\t\t\t\theight: 13px;\r\n\t\t\t\tbackground: #56151e;\r\n\t\t\t\tborder-radius: 100%;\r\n\t\t\t\tcursor: pointer;\r\n\t\t\t}\r\n\t\t}\r\n\r\n\t\t&-children{\r\n\t\t\tposition: relative;\r\n\t\t\tdisplay: flex;\r\n\t\t\tflex-direction: column;\r\n\t\t\tmargin-top: 2px;\r\n\t\t\tpadding: 0px 0px 0px 0px;\r\n\t\t}\r\n\r\n\t\t&-children > div{\r\n\t\t\tpadding: 0px 0px 0px 10px;\r\n\t\t\tbackground: #28283d;\r\n\t\t}\r\n\r\n}\r\n\r\n.arrow-down{\r\n\ttransform: rotate(180deg);\r\n\tbackground: #1f1f3b;\r\n}\r\n\r\n\r\n//#dfd9f3, #9899c7, #56577b, #2f2f49"],"sourceRoot":""}]);
+`, "",{"version":3,"sources":["webpack://./source/components/Tree/styles/tree.scss"],"names":[],"mappings":"AAAA;EACC,kBAAkB;EAClB,WAAW;EACX,YAAY;EACZ,mBAAmB;EACnB,kBAAkB;EAClB,4BAA4B,EAAA;EAE5B;IACC,kBAAkB,EAAA;EAGnB;IACC,kBAAkB;IAClB,aAAa;IACb,mBAAmB;IACnB,mBAAmB;IACnB,kBAAkB;IAClB,wBAAwB;IACxB,mBAAmB;IACnB,eAAe;IACf,yBAAyB,EAAA;IAEzB;MACC,kBAAkB;MAClB,qBAAqB;MACrB,eAAe;MACf,iBAAiB;MACjB,cAAc;MACd,gCAAgC,EAAA;IAEjC;MACC,kBAAkB;MAClB,mBAAmB;MACnB,wBAAwB;MACxB,mBAAmB;MACnB,YAAY;MACZ,qBAAqB,EAAA;EAIvB;IACC,kBAAkB;IAClB,gBAAgB;IAChB,wBAAwB;IACxB,kBAAkB;IAClB,cAAc;IACd,iBAAiB,EAAA;EAGjB;IACC,kBAAkB;IAClB,aAAa,EAAA;IAEb;MACC,kBAAkB;MAClB,eAAe;MACf,uBAAuB,EAAA;IAExB;MACC,kBAAkB;MAClB,eAAe;MACf,mBAAmB;MACnB,mBAAmB;MACnB,WAAW;MACX,YAAY;MACZ,aAAa;MACb,uBAAuB;MACvB,YAAY;MACZ,eAAe,EAAA;IAEhB;MACC,kBAAkB;MAClB,eAAe;MACf,mBAAmB;MACnB,mBAAmB;MACnB,WAAW;MACX,YAAY;MACZ,aAAa;MACb,uBAAuB;MACvB,YAAY;MACZ,eAAe,EAAA;EAIjB;IACC,kBAAkB;IAClB,kBAAkB;IAClB,aAAa;IACb,sBAAsB,EAAA;IAEtB;MACC,kBAAkB;MAClB,WAAW;MACX,YAAY;MACZ,mBAAmB;MACnB,mBAAmB;MACnB,WAAW;MACX,aAAa;MACb,eAAe;MACf,qBAAqB;MACrB,uBAAuB;MACvB,iBAAiB;MACjB,eAAe,EAAA;IAGhB;MACC,kBAAkB;MAClB,iBAAiB,EAAA;IAGlB;MACC,kBAAkB;MAClB,aAAa;MACb,mBAAmB;MACnB,mBAAmB;MACnB,kBAAkB;MAClB,wBAAwB;MACxB,cAAc;MACd,qBAAqB;MACrB,eAAe;MACf,yBAAyB,EAAA;EAzH7B;IA8HG,kBAAkB;IAClB,aAAa,EAAA;IA/HhB;MAkII,kBAAkB;MAClB,WAAW;MACX,YAAY;MACZ,iBAAiB;MACjB,kBAAkB;MAClB,eAAe;MACf,kBAAkB;MAClB,iBAAiB;MACjB,qBAAqB;MACrB,eAAe,EAAA;IA3InB;MA8II,kBAAkB;MAClB,WAAW;MACX,YAAY;MACZ,mBAAmB;MACnB,iBAAiB;MACjB,kBAAkB;MAClB,eAAe;MACf,kBAAkB;MAClB,eAAe;MACf,yBAAyB;MACzB,iBAAiB,EAAA;IAxJrB;MA2JI,kBAAkB;MAClB,WAAW;MACX,YAAY;MACZ,mBAAmB;MACnB,mBAAmB;MACnB,eAAe,EAAA;EAIjB;IACC,kBAAkB;IAClB,aAAa;IACb,sBAAsB;IACtB,eAAe;IACf,wBAAwB,EAAA;EAGzB;IACC,yBAAyB;IACzB,mBAAmB,EAAA;;AAKtB;EACC,yBAAyB;EACzB,mBAAmB,EAAA","sourcesContent":[".tree{\r\n\tposition: relative;\r\n\twidth: 100%;\r\n\theight: 100%;\r\n\tbackground: #27192f;\r\n\tborder-radius: 5px;\r\n\tpadding: 10px 10px 10px 10px;\r\n\r\n\t&-add-wrap{\r\n\t\tposition: relative;\r\n\t}\r\n\r\n\t&-add{\r\n\t\tposition: relative;\r\n\t\tdisplay: flex;\r\n\t\tbackground: #3e294b;\r\n\t\talign-items: center;\r\n\t\twidth: fit-content;\r\n\t\tpadding: 5px 7px 5px 8px;\r\n\t\tborder-radius: 15px;\r\n\t\tcursor: pointer;\r\n\t\tborder: 1px solid #4b335b;\r\n\r\n\t\t&-text{\r\n\t\t\tposition: relative;\r\n\t\t\tfont-family: \"Roboto\";\r\n\t\t\tfont-size: 15px;\r\n\t\t\tmargin-right: 6px;\r\n\t\t\tcolor: #ffffff;\r\n\t\t\ttext-shadow: 0px 0px 0px #563789;\r\n\t\t}\r\n\t\t&-btn{\r\n\t\t\tposition: relative;\r\n\t\t\tbackground: #503d65;\r\n\t\t\tpadding: 0px 5px 0px 5px;\r\n\t\t\tborder-radius: 100%;\r\n\t\t\tcolor: white;\r\n\t\t\tfont-family: 'Roboto';\r\n\t\t}\r\n\t}\r\n\r\n\t&-body{\r\n\t\tposition: relative;\r\n\t\tmargin-top: 17px;\r\n\t\tpadding: 3px 4px 5px 3px;\r\n\t\tborder-radius: 7px;\r\n\t\toverflow: auto;\r\n\t\tmax-height: 800px;\r\n\t}\r\n\r\n\t\t&-title{\r\n\t\t\tposition: relative;\r\n\t\t\tdisplay: flex;\r\n\r\n\t\t\t&-text{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\tfont-size: 15px;\r\n\t\t\t\tmargin: 0px 5px 0px 5px;\r\n\t\t\t}\r\n\t\t\t&-add{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\tfont-size: 16px;\r\n\t\t\t\tbackground: #3f3f5b;\r\n\t\t\t\tborder-radius: 100%;\r\n\t\t\t\twidth: 18px;\r\n\t\t\t\theight: 18px;\r\n\t\t\t\tdisplay: flex;\r\n\t\t\t\tjustify-content: center;\r\n\t\t\t\tcolor: white;\r\n\t\t\t\tcursor: pointer;\r\n\t\t\t}\r\n\t\t\t&-arr{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\tfont-size: 13px;\r\n\t\t\t\tbackground: #5d5d83;\r\n\t\t\t\tborder-radius: 100%;\r\n\t\t\t\twidth: 18px;\r\n\t\t\t\theight: 18px;\r\n\t\t\t\tdisplay: flex;\r\n\t\t\t\tjustify-content: center;\r\n\t\t\t\tcolor: white;\r\n\t\t\t\tcursor: pointer;\r\n\t\t\t}\r\n\t\t}\r\n\r\n\t\t&-child{\r\n\t\t\tposition: relative;\r\n\t\t\tmargin-bottom: 3px;\r\n\t\t\tdisplay: flex;\r\n\t\t\tflex-direction: column;\r\n\r\n\t\t\t&-expand{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\twidth: 18px;\r\n\t\t\t\theight: 18px;\r\n\t\t\t\tbackground: #e2e6ff;\r\n\t\t\t\tborder-radius: 100%;\r\n\t\t\t\tcolor: gray;\r\n\t\t\t\tdisplay: flex;\r\n\t\t\t\tfont-size: 17px;\r\n\t\t\t\talign-items: flex-end;\r\n\t\t\t\tjustify-content: center;\r\n\t\t\t\tmargin-right: 4px;\r\n\t\t\t\tcursor: pointer;\r\n\t\t\t}\r\n\r\n\t\t\t&-text{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\tmargin-right: 5px;\r\n\t\t\t}\r\n\r\n\t\t\t&-wrap{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\tdisplay: flex;\r\n\t\t\t\talign-items: center;\r\n\t\t\t\tbackground: #2a1c33;\r\n\t\t\t\tborder-radius: 2px;\r\n\t\t\t\tpadding: 3px 0px 3px 5px;\r\n\t\t\t\tcolor: #d6d5ff;\r\n\t\t\t\tfont-family: 'Roboto';\r\n\t\t\t\tfont-size: 15px;\r\n\t\t\t\tborder: 1px solid #2e1d39;\r\n\t\t\t}\r\n\t\t}\r\n\r\n\t\t.child-btn{\r\n\t\t\tposition: relative;\r\n\t\t\tdisplay: flex;\r\n\r\n\t\t\t&-add{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\twidth: 13px;\r\n\t\t\t\theight: 13px;\r\n\t\t\t\tline-height: 13px;\r\n\t\t\t\ttext-align: center;\r\n\t\t\t\tfont-size: 11px;\r\n\t\t\t\tborder-radius: 4px;\r\n\t\t\t\tmargin-right: 4px;\r\n\t\t\t\tbackground: #d9d2ff70;\r\n\t\t\t\tcursor: pointer;\r\n\t\t\t}\r\n\t\t\t&-remove{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\twidth: 13px;\r\n\t\t\t\theight: 13px;\r\n\t\t\t\tbackground: #3a3856;\r\n\t\t\t\tline-height: 10px;\r\n\t\t\t\ttext-align: center;\r\n\t\t\t\tfont-size: 15px;\r\n\t\t\t\tborder-radius: 4px;\r\n\t\t\t\tcursor: pointer;\r\n\t\t\t\tborder: 1px solid #494e6f;\r\n\t\t\t\tmargin-right: 4px;\r\n\t\t\t}\r\n\t\t\t&-change{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\twidth: 13px;\r\n\t\t\t\theight: 13px;\r\n\t\t\t\tbackground: #56151e;\r\n\t\t\t\tborder-radius: 100%;\r\n\t\t\t\tcursor: pointer;\r\n\t\t\t}\r\n\t\t}\r\n\r\n\t\t&-children{\r\n\t\t\tposition: relative;\r\n\t\t\tdisplay: flex;\r\n\t\t\tflex-direction: column;\r\n\t\t\tmargin-top: 2px;\r\n\t\t\tpadding: 0px 0px 0px 0px;\r\n\t\t}\r\n\r\n\t\t&-children > div{\r\n\t\t\tpadding: 0px 0px 0px 10px;\r\n\t\t\tbackground: #291b31;\r\n\t\t}\r\n\r\n}\r\n\r\n.arrow-down{\r\n\ttransform: rotate(180deg);\r\n\tbackground: #1f1f3b;\r\n}\r\n\r\n\r\n//#dfd9f3, #9899c7, #56577b, #2f2f49"],"sourceRoot":""}]);
 // Exports
 /* harmony default export */ const __WEBPACK_DEFAULT_EXPORT__ = (___CSS_LOADER_EXPORT___);
 

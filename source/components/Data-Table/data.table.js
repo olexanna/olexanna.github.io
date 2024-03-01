@@ -311,7 +311,6 @@ export const DataTable = ( props ) => {
 						return(
 							<div className={"data-row"} key={line.id}>
 								<p className={"data-row-item"}>{line.id}</p>
-
 								{
 									state.inputs.map((item)=>{
 										if(item.type ==="hidden"){

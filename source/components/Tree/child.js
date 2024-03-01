@@ -13,7 +13,7 @@ export const Child = ( props ) => {
 		<div className={"tree-child"}>
 
 			<div className={"tree-child-wrap " }>
-				<p className={"tree-child-expand" } onClick={() => { dispatch([ "expanded", { id: id, value: !expanded } ]) }}>&#8595;</p>
+				<p className={"tree-child-expand " + (!expanded ? "" : "expand-arrow") } onClick={() => { dispatch([ "expanded", { id: id, value: !expanded } ]) }}>&#8595;</p>
 
 				<div className={"tree-child-text"}>{ props.title }</div>
 
@@ -24,11 +24,13 @@ export const Child = ( props ) => {
 			</div>
 
 			<div className={ "tree-children " + ( mark ) }>
-				{ props.children.map(( unit, index ) => {
-					return(
-						<Child key={ unit.id } parentId={ id } id={ unit.id } title={ unit.title } children={ unit.children } expanded={ unit.expanded }/>
-					)
-				}) }
+				{
+					props.children.map(( unit, index )=>{
+						return(
+							<Child key={ unit.id } parentId={ id } id={ unit.id } title={ unit.title } children={ unit.children } expanded={ unit.expanded }/>
+						);
+					})
+				}
 			</div>
 		</div>
 	)

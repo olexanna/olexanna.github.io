@@ -11,7 +11,6 @@ const TreeReducer = ( state, [ type, data, data2 ])=>{
 	if( type == "add" ){
 		let table = { ...state.table };
 
-		//data === parentId
 		let parent = data ? table[ data ] : state.root;
 
 		if( !parent )
@@ -35,7 +34,7 @@ const TreeReducer = ( state, [ type, data, data2 ])=>{
 			table: table
 		}
 	}
-	else if( type == "remove" ){
+	 if( type == "remove" ){
 		let table = { ...state.table };
 		let parent = data.parentId < 0 ? state.root : table[ data.parentId ];
 
@@ -55,7 +54,7 @@ const TreeReducer = ( state, [ type, data, data2 ])=>{
 			table: table
 		}
 	}
-	else if( type == "expanded" ){
+	 if( type == "expanded" ){
 		let table = { ...state.table };
 		table[ data.id ].expanded = data.value;
 
@@ -88,11 +87,13 @@ export const Tree = ( props ) => {
 
 			<div className={"tree-body"}>
 				<TreeContext.Provider value={{dispatch: dispatch}}>
-					{ state.root.children.map(( item, index ) => {
-						return(
+					{
+						state.root.children.map(( item, index )=>{
+							return(
 								<Child key={ item.id } parentId={ -1 } id={ item.id } title={ item.title } children={ item.children } expanded={ item.expanded }/>
 							)
-					}) }
+						})
+					}
 				</TreeContext.Provider>
 			</div>
 		</section>
