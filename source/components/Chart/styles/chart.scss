@@ -1,0 +1,220 @@
+.content{
+	position: relative;
+	padding: 0px 30px 0px 20px;
+
+	&-head{
+		position: relative;
+		font-size: 22px;
+		font-family: "IBMPlexSans-Regular";
+		font-weight: 600;
+		color: white;
+		padding-bottom: 30px;
+		border-bottom: 1px solid #222B44;
+	}
+
+	&-title{
+		position: relative;
+		display: flex;
+		justify-content: space-between;
+
+		&-text{
+			font-size: 26px;
+			font-family: "IBMPlexSans-Regular";
+			color: white;
+			letter-spacing: 0.5px;
+		}
+	}
+}
+
+.input{
+	position: relative;
+	display: flex;
+	align-items: center;
+	padding: 11px 16px 11px 16px;
+	border-radius: 4px;
+	background: #1d1a2c;
+	width: 80%;
+
+	&-icon{
+		position: relative;
+		background-image: url("/assets/images/search.svg");
+		width: 17px;
+		height: 17px;
+		background-size: initial;
+		background-repeat: no-repeat;
+		margin-right: 11px;
+	}
+
+	&-folder{
+		position: relative;
+		background: #1d1a2c;
+		text-decoration: unset;
+		outline: none;
+		width: 100%;
+		font-size: 14px;
+		font-family: "IBMPlexSans-Regular";
+		color: #616d8d;
+		border: unset;
+	}
+	&-folder::placeholder{
+		color: #616D8D;
+		font-family: "IBMPlexSans-Regular";
+	}
+}
+
+.table{
+	position: relative;
+	width: 100%;
+	margin-top: 66px;
+
+	&-header{
+		display: flex;
+		justify-content: space-between;
+		position: relative;
+		width: 100%;
+		background: #2b273f;
+		border-left: 4px solid #453d67;
+		border-right: 4px solid #453d67;
+		border-radius: 3px;
+		padding: 10px 0px 10px 6px;
+		color: #bfc9d9;
+		font-size: 15px;
+		font-family: "IBMPlexSans-Regular";
+		margin-bottom: 4px;
+	}
+
+	&-item{
+		position: relative;
+		display: flex;
+		flex-basis: 500px;
+		justify-content: center;
+
+		&-text{
+			position: relative;
+			margin-right: 4px;
+		}
+		&-icon{
+			position: relative;
+			width: 20px;
+			height: 20px;
+			background-repeat: no-repeat;
+			background-size: cover;
+		}
+		&-arrow{
+			position: relative;
+			width: 20px;
+			height: 20px;
+			cursor: pointer;
+			background-image: url("/assets/images/vector.svg");
+			box-sizing: border-box;
+			background-repeat: no-repeat;
+			background-color: #5e5978;
+			background-position: center;
+			border-radius: 100%;
+		}
+	}
+
+	&-list{
+		position: relative;
+
+		&-row{
+			position: relative;
+			display: flex;
+			width: 100%;
+			background: #272338;
+			margin-bottom: 4px;
+			border-radius: 2px;
+			border-left: 5px solid #35314b;
+			border-right: 4px solid #35314b;
+			padding: 0px 0px 0px 6px;
+		}
+
+		&-items{
+			position: relative;
+			display: flex;
+			width: 100%;
+			justify-content: space-between;
+			margin-left: 2px;
+
+			&-text{
+				position: relative;
+				font-size: 14px;
+				font-family: "IBMPlexSans-Regular";
+				font-weight: 500;
+				color: #bcc8df;
+				flex-basis: 500px;
+				display: flex;
+				justify-content: center;
+				padding: 14px 0px 14px 0px;
+			}
+		}
+
+		&-btns{
+			position: relative;
+			display: flex;
+			width: 20%;
+			justify-content: center;
+			padding: 14px 0px 14px 0px;
+
+			&-edit{
+				position: relative;
+				width: 18px;
+				height: 18px;
+				background-image: url("/assets/images/edit.svg");
+				box-sizing: border-box;
+				background-repeat: no-repeat;
+				margin-right: 7px;
+				cursor: pointer;
+			}
+
+			&-trash{
+				position: relative;
+				width: 18px;
+				height: 18px;
+				background-image: url("/assets/images/trash.svg");
+				box-sizing: border-box;
+				background-repeat: no-repeat;
+				cursor: pointer;
+			}
+		}
+	}
+}
+.pages{
+	position: relative;
+	padding: 25px 0px 30px 0px;
+	display: flex;
+	justify-content: center;
+
+	&-select{
+		position: relative;
+		color: white;
+		background: #1d1a2c;
+		border-radius: 4px;
+	}
+
+	&-wrap{
+		position: relative;
+		display: flex;
+
+		&-item{
+			position: relative;
+			color: white;
+			font-family: "IBMPlexSans-Regular";
+			font-size: 14px;
+			padding: 6px 14px 6px 14px;
+			cursor: pointer;
+			//margin-right: 20px;
+		}
+	}
+}
+.desc-sort{
+	transform: rotate(180deg);
+}
+.sub-size{
+	width: 22px;
+	height: 22px;
+}
+
+//#272338; #3d3950;#1b1829; #1e1b2e; #1d1a2c;#35314b
+//#161525;#12121e;#1b202f;#232031;#211c29;#161421;
+//#2a2541;#1b172b;#1d192b; #1f1b2f; #13101e;#191621;#181423;#110e18

@@ -1,0 +1,266 @@
+.sidebar-backdrop{
+	position: fixed;
+	left: 0;
+	top: 0;
+	right: 0;
+	bottom: 0;
+	background: #070a0ff2;
+	width: 100%;
+	height: 100%;
+	z-index: 0;
+}
+
+.sidebar{
+	position: fixed;
+	right: 0px;
+	width: 470px;
+	top: 0px;
+	bottom: 0px;
+	background:#151321;
+	padding: 56px 40px  56px 20px;
+	border-left: 1px solid #242031;
+	overflow-y: auto;
+}
+.sidebar::-webkit-scrollbar {
+	width: 6px;
+	cursor: pointer;
+}
+.sidebar::-webkit-scrollbar-track {
+	border-radius: 10px;
+}
+.sidebar::-webkit-scrollbar-thumb {
+	background: #202d4d;
+	border-radius: 10px;
+}
+
+
+.hidden{
+	display: none;
+}
+.block{
+	display: block;
+}
+
+.user-mail{
+	position: relative;
+	display: flex;
+	color: white;
+	box-sizing: border-box;
+	justify-content: space-between;
+
+	&-text{
+		position: relative;
+		font-family: "IBMPlexSans-Regular";
+		font-size: 20px;
+	}
+}
+.chart-title{
+	position: relative;
+	display: flex;
+	justify-content: space-between;
+
+	&-text{
+		position: relative;
+		color: white;
+		font-family: 'IBMPlexSans-Regular';
+		font-size: 20px;
+		font-weight: 600;
+		margin-bottom: 24px;
+	}
+
+	&-close{
+		position: relative;
+		width: 24px;
+		height: 24px;
+		background-repeat: no-repeat;
+		background-image: url("/assets/images/close.svg");
+		cursor: pointer;
+	}
+}
+
+
+.chart{
+	position: relative;
+	margin-top: 27px;
+	background-color: #161616;
+
+	&-title{
+		position: relative;
+		color:white;
+		font-family:'IBMPlexSans-Regular';
+		font-size: 20px;
+		font-weight: 600;
+		margin-bottom: 24px;
+
+	}
+	&-d{
+		position: relative;
+
+		&-schedule{
+			position: relative;
+			width: 409px;
+			height: 324px;
+			background-repeat: no-repeat;
+			box-sizing: border-box;
+			background-size: contain;
+		}
+
+		&-mail{
+			position: relative;
+			display: flex;
+			width: 100%;
+			justify-content: center;
+			margin-top: 10px;
+			padding-bottom: 15px;
+
+			&-i{
+				position: relative;
+				width: 12px;
+				height: 12px;
+				background: #1C64F2;
+				border-radius: 2px;
+				margin-right: 9px;
+			}
+
+			&-title{
+				position: relative;
+				color: #616D8D;
+				font-family:'IBMPlexSans-Regular';
+				font-weight: 500;
+				font-size: 12px;
+			}
+		}
+	}
+}
+
+.tokens{
+	position: relative;
+
+	&-title{
+		position: relative;
+		color: #e9e2ff;
+		font-family: "IBMPlexSans-Regular";
+		font-size: 20px;
+		font-weight: 600;
+		letter-spacing: 1px;
+		padding: 36px 0px 11px 0px;
+	}
+
+	&-header{
+		position: relative;
+		display: flex;
+		justify-content: space-around;
+		background: #1b1929;
+		color: #b9b4db;
+		padding: 14px 0px 14px 0px;
+		font-family: "IBMPlexSans-Regular";
+		font-size: 14px;
+		text-shadow: 0px 0px 0px #b9b4db;
+		border-left: 4px solid #353247;
+		border-right: 4px solid #353247;
+		margin-bottom: 2px;
+
+		&-item{
+			position: relative;
+		}
+	}
+
+	&-wrap{
+		position: relative;
+	}
+
+	&-block{
+		position: relative;
+		display: flex;
+		text-align: end;
+		justify-content: space-between;
+		padding: 10px 12px 7px 12px;
+		background: #191725;
+		margin-bottom: 2px;
+		font-size: 15px;
+		border-left: 4px solid #211e2f;
+		border-right: 4px solid #211e2f;
+		align-items: center;
+		color: #c1b4d3;
+		font-family: 'IBMPlexSans-Regular';
+
+		&-item{
+			position: relative;
+			width: 14%;
+			display: flex;
+			justify-content: left;
+		}
+
+		&-type{
+			position: relative;
+			display: flex;
+			align-items: center;
+			width: 36%;
+
+
+			&-text{
+				position: relative;
+			}
+			&-i{
+				position: relative;
+			}
+		}
+	}
+
+	&-date{
+		position: relative;
+		display: flex;
+		flex-direction: column;
+		width: 36%;
+
+		&-item{
+			position: relative;
+		}
+	}
+}
+.operation-replenish{
+	position: relative;
+	background-repeat: no-repeat;
+	background-image: url("/assets/images/vector-1.svg");
+	width: 10px;
+	height: 20px;
+	background-position-y: center;
+	margin-right: 5px;
+	transform: rotate(180deg);
+}
+.operation-writeOff{
+	position: relative;
+	background-repeat: no-repeat;
+	background-image: url("/assets/images/vector-2.svg");
+	width: 10px;
+	height: 20px;
+	background-position-y: center;
+	margin-right: 4px;
+}
+.replenish-amount{
+	position: relative;
+	color: #487e9f;
+}
+.writeOff-amount{
+	position: relative;
+	color: #865589;
+}
+
+.resize-text{
+	word-break: break-word;
+	text-align: center;
+}
+.text-user{
+	word-break: break-word;
+	text-align: left;
+	justify-content: unset;
+}
+.text-mail{
+	word-break: break-word;
+	text-align: center;
+	padding-left: 13px;
+}
+
+//#191821
+//#242135
+//#1f1d2b;

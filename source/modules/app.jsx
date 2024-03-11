@@ -9,7 +9,7 @@ import {SelectorJson} from "@components/Selector-json/selector-json";
 import {DataTable } from "@components/Data-Table/data.table";
 import {Gallery } from "@components/Gallery/gallery";
 import {Tree } from "@components/Tree/tree";
-
+import {Chart } from "@components/Chart/chart";
 
 const AppReducer = ( state, [ type, data ] ) => {
 
@@ -31,7 +31,8 @@ export const App = () => {
 		{id:1, element: <SelectorJson/>, path:"/selector", title:"Selector", key: "Selector", icon:""  },
 		{id:2, element: <DataTable/>, path:"/table", title:"Table", key: "Table", icon:""  },
 		{id:3, element: <Gallery/>, path:"/gallery", title:"Gallery", key: "Gallery", icon:""  },
-		{id:4, element: <Tree/>, path:"/tree", title:"Tree", key: "Tree", icon:""  },
+		{id:4, element: <Tree/>, path:"/tree", title:"Tree", key: "Tree", icon:""  },
+		{id:5, element: <Chart/>, path:"/chart", title:"Chart", key: "Chart", icon:""  },
 	];
 
 	return (

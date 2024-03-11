@@ -1,7 +1,8 @@
 
 html, body {
-	height: 100%;
+	min-height: 100%;
 	width:100%;
+	background: #271633;
 }
 
 body{
@@ -9,12 +10,23 @@ body{
 	font-weight: inherit;
 }
 
-
 * {
 	border-spacing: 0px;
 	box-sizing: border-box;
 	margin: 0px;
 	padding: 0px;
+}
+
+html::-webkit-scrollbar {
+	width: 6px;
+	cursor: pointer;
+}
+html::-webkit-scrollbar-track {
+	border-radius: 10px;
+}
+html::-webkit-scrollbar-thumb {
+	background: #202d4d;
+	border-radius: 10px;
 }
 
 #main{

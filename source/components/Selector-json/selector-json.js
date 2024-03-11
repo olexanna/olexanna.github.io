@@ -24,7 +24,7 @@ const SelectorJsonReducer = ( state, [ type, data ], props ) => {
 		let index = select.findIndex(( item ) => item.key === data.key);
 		console.log(index, "check" );
 
-		if( index  ){
+		if( index > -1  ){
 			select.splice( index, 1 );
 		}else{
 			select.push({ value: data.value, key: data.key, id: data.id });

@@ -12,14 +12,15 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   AbortedDeferredError: () => (/* binding */ AbortedDeferredError),
 /* harmony export */   Action: () => (/* binding */ Action),
-/* harmony export */   ErrorResponse: () => (/* binding */ ErrorResponse),
 /* harmony export */   IDLE_BLOCKER: () => (/* binding */ IDLE_BLOCKER),
 /* harmony export */   IDLE_FETCHER: () => (/* binding */ IDLE_FETCHER),
 /* harmony export */   IDLE_NAVIGATION: () => (/* binding */ IDLE_NAVIGATION),
 /* harmony export */   UNSAFE_DEFERRED_SYMBOL: () => (/* binding */ UNSAFE_DEFERRED_SYMBOL),
 /* harmony export */   UNSAFE_DeferredData: () => (/* binding */ DeferredData),
+/* harmony export */   UNSAFE_ErrorResponseImpl: () => (/* binding */ ErrorResponseImpl),
+/* harmony export */   UNSAFE_convertRouteMatchToUiMatch: () => (/* binding */ convertRouteMatchToUiMatch),
 /* harmony export */   UNSAFE_convertRoutesToDataRoutes: () => (/* binding */ convertRoutesToDataRoutes),
-/* harmony export */   UNSAFE_getPathContributingMatches: () => (/* binding */ getPathContributingMatches),
+/* harmony export */   UNSAFE_getResolveToMatches: () => (/* binding */ getResolveToMatches),
 /* harmony export */   UNSAFE_invariant: () => (/* binding */ invariant),
 /* harmony export */   UNSAFE_warning: () => (/* binding */ warning),
 /* harmony export */   createBrowserHistory: () => (/* binding */ createBrowserHistory),
@@ -41,12 +42,13 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */   normalizePathname: () => (/* binding */ normalizePathname),
 /* harmony export */   parsePath: () => (/* binding */ parsePath),
 /* harmony export */   redirect: () => (/* binding */ redirect),
+/* harmony export */   redirectDocument: () => (/* binding */ redirectDocument),
 /* harmony export */   resolvePath: () => (/* binding */ resolvePath),
 /* harmony export */   resolveTo: () => (/* binding */ resolveTo),
 /* harmony export */   stripBasename: () => (/* binding */ stripBasename)
 /* harmony export */ });
 /**
- * @remix-run/router v1.7.2
+ * @remix-run/router v1.15.2
  *
  * Copyright (c) Remix Software Inc.
  *
@@ -251,6 +253,15 @@ function createHashHistory(options) {
       search = "",
       hash = ""
     } = parsePath(window.location.hash.substr(1));
+    // Hash URL should always have a leading / just like window.location.pathname
+    // does, so if an app ends up at a route like /#something then we add a
+    // leading slash so all of our path-matching behaves the same as if it would
+    // in a browser router.  This is particularly important when there exists a
+    // root splat route (<Route path="*">) since that matches internally against
+    // "/*" and we'd expect /#something to 404 in a hash router app.
+    if (!pathname.startsWith("/") && !pathname.startsWith(".")) {
+      pathname = "/" + pathname;
+    }
     return createLocation("", {
       pathname,
       search,
@@ -286,7 +297,7 @@ function warning(cond, message) {
     try {
       // Welcome to debugging history!
       //
-      // This error is thrown as a convenience so you can more easily
+      // This error is thrown as a convenience, so you can more easily
       // find the source for a warning that appears in the console by
       // enabling "pause on exceptions" in your JavaScript debugger.
       throw new Error(message);
@@ -455,6 +466,10 @@ function getUrlBasedHistory(getLocation, createHref, validateLocation, options) 
     // See https://bugzilla.mozilla.org/show_bug.cgi?id=878297
     let base = window.location.origin !== "null" ? window.location.origin : window.location.href;
     let href = typeof to === "string" ? to : createPath(to);
+    // Treating this as a full URL will strip any trailing spaces so we need to
+    // pre-encode them since they might be part of a matching splat param from
+    // an ancestor route
+    href = href.replace(/ $/, "%20");
     invariant(base, "No window.location.(origin|href) available to create URL for href: " + href);
     return new URL(href, base);
   }
@@ -510,7 +525,7 @@ const immutableRouteKeys = new Set(["lazy", "caseSensitive", "path", "id", "inde
 function isIndexRoute(route) {
   return route.index === true;
 }
-// Walk the route tree generating unique IDs where necessary so we are working
+// Walk the route tree generating unique IDs where necessary, so we are working
 // solely with AgnosticDataRouteObject's within the Router
 function convertRoutesToDataRoutes(routes, mapRouteProperties, parentPath, manifest) {
   if (parentPath === void 0) {
@@ -561,16 +576,30 @@ function matchRoutes(routes, locationArg, basename) {
   rankRouteBranches(branches);
   let matches = null;
   for (let i = 0; matches == null && i < branches.length; ++i) {
-    matches = matchRouteBranch(branches[i],
     // Incoming pathnames are generally encoded from either window.location
     // or from router.navigate, but we want to match against the unencoded
     // paths in the route definitions.  Memory router locations won't be
     // encoded here but there also shouldn't be anything to decode so this
     // should be a safe operation.  This avoids needing matchRoutes to be
     // history-aware.
-    safelyDecodeURI(pathname));
+    let decoded = decodePath(pathname);
+    matches = matchRouteBranch(branches[i], decoded);
   }
   return matches;
+}
+function convertRouteMatchToUiMatch(match, loaderData) {
+  let {
+    route,
+    pathname,
+    params
+  } = match;
+  return {
+    id: route.id,
+    pathname,
+    params,
+    data: loaderData[route.id],
+    handle: route.handle
+  };
 }
 function flattenRoutes(routes, branches, parentsMeta, parentPath) {
   if (branches === void 0) {
@@ -595,7 +624,7 @@ function flattenRoutes(routes, branches, parentsMeta, parentPath) {
     }
     let path = joinPaths([parentPath, meta.relativePath]);
     let routesMeta = parentsMeta.concat(meta);
-    // Add the children before adding this route to the array so we traverse the
+    // Add the children before adding this route to the array, so we traverse the
     // route tree depth-first and child routes appear before their parents in
     // the "flattened" version.
     if (route.children && route.children.length > 0) {
@@ -659,14 +688,14 @@ function explodeOptionalSegments(path) {
   let restExploded = explodeOptionalSegments(rest.join("/"));
   let result = [];
   // All child paths with the prefix.  Do this for all children before the
-  // optional version for all children so we get consistent ordering where the
+  // optional version for all children, so we get consistent ordering where the
   // parent optional aspect is preferred as required.  Otherwise, we can get
   // child sections interspersed where deeper optional segments are higher than
-  // parent optional segments, where for example, /:two would explodes _earlier_
+  // parent optional segments, where for example, /:two would explode _earlier_
   // then /:one.  By always including the parent as required _for all children_
   // first, we avoid this issue
   result.push(...restExploded.map(subpath => subpath === "" ? required : [required, subpath].join("/")));
-  // Then if this is an optional value, add all child versions without
+  // Then, if this is an optional value, add all child versions without
   if (isOptional) {
     result.push(...restExploded);
   }
@@ -677,7 +706,7 @@ function rankRouteBranches(branches) {
   branches.sort((a, b) => a.score !== b.score ? b.score - a.score // Higher score first
   : compareIndexes(a.routesMeta.map(meta => meta.childrenIndex), b.routesMeta.map(meta => meta.childrenIndex)));
 }
-const paramRe = /^:\w+$/;
+const paramRe = /^:[\w-]+$/;
 const dynamicSegmentValue = 3;
 const indexRouteValue = 2;
 const emptySegmentValue = 1;
@@ -764,7 +793,7 @@ function generatePath(originalPath, params) {
       // Apply the splat
       return stringify(params[star]);
     }
-    const keyMatch = segment.match(/^:(\w+)(\??)$/);
+    const keyMatch = segment.match(/^:([\w-]+)(\??)$/);
     if (keyMatch) {
       const [, key, optional] = keyMatch;
       let param = params[key];
@@ -792,20 +821,29 @@ function matchPath(pattern, pathname) {
       end: true
     };
   }
-  let [matcher, paramNames] = compilePath(pattern.path, pattern.caseSensitive, pattern.end);
+  let [matcher, compiledParams] = compilePath(pattern.path, pattern.caseSensitive, pattern.end);
   let match = pathname.match(matcher);
   if (!match) return null;
   let matchedPathname = match[0];
   let pathnameBase = matchedPathname.replace(/(.)\/+$/, "$1");
   let captureGroups = match.slice(1);
-  let params = paramNames.reduce((memo, paramName, index) => {
+  let params = compiledParams.reduce((memo, _ref, index) => {
+    let {
+      paramName,
+      isOptional
+    } = _ref;
     // We need to compute the pathnameBase here using the raw splat value
     // instead of using params["*"] later because it will be decoded then
     if (paramName === "*") {
       let splatValue = captureGroups[index] || "";
       pathnameBase = matchedPathname.slice(0, matchedPathname.length - splatValue.length).replace(/(.)\/+$/, "$1");
     }
-    memo[paramName] = safelyDecodeURIComponent(captureGroups[index] || "", paramName);
+    const value = captureGroups[index];
+    if (isOptional && !value) {
+      memo[paramName] = undefined;
+    } else {
+      memo[paramName] = (value || "").replace(/%2F/g, "/");
+    }
     return memo;
   }, {});
   return {
@@ -823,16 +861,21 @@ function compilePath(path, caseSensitive, end) {
     end = true;
   }
   warning(path === "*" || !path.endsWith("*") || path.endsWith("/*"), "Route path \"" + path + "\" will be treated as if it were " + ("\"" + path.replace(/\*$/, "/*") + "\" because the `*` character must ") + "always follow a `/` in the pattern. To get rid of this warning, " + ("please change the route path to \"" + path.replace(/\*$/, "/*") + "\"."));
-  let paramNames = [];
+  let params = [];
   let regexpSource = "^" + path.replace(/\/*\*?$/, "") // Ignore trailing / and /*, we'll handle it below
   .replace(/^\/*/, "/") // Make sure it has a leading /
-  .replace(/[\\.*+^$?{}|()[\]]/g, "\\$&") // Escape special regex chars
-  .replace(/\/:(\w+)/g, (_, paramName) => {
-    paramNames.push(paramName);
-    return "/([^\\/]+)";
+  .replace(/[\\.*+^${}|()[\]]/g, "\\$&") // Escape special regex chars
+  .replace(/\/:([\w-]+)(\?)?/g, (_, paramName, isOptional) => {
+    params.push({
+      paramName,
+      isOptional: isOptional != null
+    });
+    return isOptional ? "/?([^\\/]+)?" : "/([^\\/]+)";
   });
   if (path.endsWith("*")) {
-    paramNames.push("*");
+    params.push({
+      paramName: "*"
+    });
     regexpSource += path === "*" || path === "/*" ? "(.*)$" // Already matched the initial /, just match the rest
     : "(?:\\/(.+)|\\/*)$"; // Don't include the / in params["*"]
   } else if (end) {
@@ -840,7 +883,7 @@ function compilePath(path, caseSensitive, end) {
     regexpSource += "\\/*$";
   } else if (path !== "" && path !== "/") {
     // If our path is non-empty and contains anything beyond an initial slash,
-    // then we have _some_ form of path in our regex so we should expect to
+    // then we have _some_ form of path in our regex, so we should expect to
     // match only if we find the end of this path segment.  Look for an optional
     // non-captured trailing slash (to match a portion of the URL) or the end
     // of the path (if we've matched to the end).  We used to do this with a
@@ -849,21 +892,13 @@ function compilePath(path, caseSensitive, end) {
     regexpSource += "(?:(?=\\/|$))";
   } else ;
   let matcher = new RegExp(regexpSource, caseSensitive ? undefined : "i");
-  return [matcher, paramNames];
+  return [matcher, params];
 }
-function safelyDecodeURI(value) {
+function decodePath(value) {
   try {
-    return decodeURI(value);
+    return value.split("/").map(v => decodeURIComponent(v).replace(/\//g, "%2F")).join("/");
   } catch (error) {
     warning(false, "The URL path \"" + value + "\" could not be decoded because it is is a " + "malformed URL segment. This is probably due to a bad percent " + ("encoding (" + error + ")."));
-    return value;
-  }
-}
-function safelyDecodeURIComponent(value, paramName) {
-  try {
-    return decodeURIComponent(value);
-  } catch (error) {
-    warning(false, "The value for the URL param \"" + paramName + "\" will not be decoded because" + (" the string \"" + value + "\" is a malformed URL segment. This is probably") + (" due to a bad percent encoding (" + error + ")."));
     return value;
   }
 }
@@ -948,6 +983,18 @@ function getInvalidPathError(char, field, dest, path) {
 function getPathContributingMatches(matches) {
   return matches.filter((match, index) => index === 0 || match.route.path && match.route.path.length > 0);
 }
+// Return the array of pathnames for the current route matches - used to
+// generate the routePathnames input for resolveTo()
+function getResolveToMatches(matches, v7_relativeSplatPath) {
+  let pathMatches = getPathContributingMatches(matches);
+  // When v7_relativeSplatPath is enabled, use the full pathname for the leaf
+  // match so we include splat values for "." links.  See:
+  // https://github.com/remix-run/react-router/issues/11052#issuecomment-1836589329
+  if (v7_relativeSplatPath) {
+    return pathMatches.map((match, idx) => idx === matches.length - 1 ? match.pathname : match.pathnameBase);
+  }
+  return pathMatches.map(match => match.pathnameBase);
+}
 /**
  * @private
  */
@@ -976,23 +1023,22 @@ function resolveTo(toArg, routePathnames, locationPathname, isPathRelative) {
   // `to` values that do not provide a pathname. `to` can simply be a search or
   // hash string, in which case we should assume that the navigation is relative
   // to the current location's pathname and *not* the route pathname.
-  if (isPathRelative || toPathname == null) {
+  if (toPathname == null) {
     from = locationPathname;
   } else {
     let routePathnameIndex = routePathnames.length - 1;
-    if (toPathname.startsWith("..")) {
+    // With relative="route" (the default), each leading .. segment means
+    // "go up one route" instead of "go up one URL segment".  This is a key
+    // difference from how <a href> works and a major reason we call this a
+    // "to" value instead of a "href".
+    if (!isPathRelative && toPathname.startsWith("..")) {
       let toSegments = toPathname.split("/");
-      // Each leading .. segment means "go up one route" instead of "go up one
-      // URL segment".  This is a key difference from how <a href> works and a
-      // major reason we call this a "to" value instead of a "href".
       while (toSegments[0] === "..") {
         toSegments.shift();
         routePathnameIndex -= 1;
       }
       to.pathname = toSegments.join("/");
     }
-    // If there are more ".." segments than parent routes, resolve relative to
-    // the root / URL.
     from = routePathnameIndex >= 0 ? routePathnames[routePathnameIndex] : "/";
   }
   let path = resolvePath(to, from);
@@ -1062,8 +1108,8 @@ class DeferredData {
     let onAbort = () => reject(new AbortedDeferredError("Deferred data aborted"));
     this.unlistenAbortSignal = () => this.controller.signal.removeEventListener("abort", onAbort);
     this.controller.signal.addEventListener("abort", onAbort);
-    this.data = Object.entries(data).reduce((acc, _ref) => {
-      let [key, value] = _ref;
+    this.data = Object.entries(data).reduce((acc, _ref2) => {
+      let [key, value] = _ref2;
       return Object.assign(acc, {
         [key]: this.trackPromise(key, value)
       });
@@ -1160,8 +1206,8 @@ class DeferredData {
   }
   get unwrappedData() {
     invariant(this.data !== null && this.done, "Can only unwrap data on initialized and settled deferreds");
-    return Object.entries(this.data).reduce((acc, _ref2) => {
-      let [key, value] = _ref2;
+    return Object.entries(this.data).reduce((acc, _ref3) => {
+      let [key, value] = _ref3;
       return Object.assign(acc, {
         [key]: unwrapTrackedPromise(value)
       });
@@ -1215,10 +1261,24 @@ const redirect = function redirect(url, init) {
   }));
 };
 /**
+ * A redirect response that will force a document reload to the new location.
+ * Sets the status code and the `Location` header.
+ * Defaults to "302 Found".
+ */
+const redirectDocument = (url, init) => {
+  let response = redirect(url, init);
+  response.headers.set("X-Remix-Reload-Document", "true");
+  return response;
+};
+/**
  * @private
  * Utility class we use to hold auto-unwrapped 4xx/5xx Response bodies
+ *
+ * We don't export the class for public use since it's an implementation
+ * detail, but we export the interface above so folks can build their own
+ * abstractions around instances via isRouteErrorResponse()
  */
-class ErrorResponse {
+class ErrorResponseImpl {
   constructor(status, statusText, data, internal) {
     if (internal === void 0) {
       internal = false;
@@ -1278,6 +1338,7 @@ const ABSOLUTE_URL_REGEX = /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i;
 const defaultMapRouteProperties = route => ({
   hasErrorBoundary: Boolean(route.hasErrorBoundary)
 });
+const TRANSITIONS_STORAGE_KEY = "remix-router-transitions";
 //#endregion
 ////////////////////////////////////////////////////////////////////////////////
 //#region createRouter
@@ -1310,8 +1371,11 @@ function createRouter(init) {
   let basename = init.basename || "/";
   // Config driven behavior flags
   let future = _extends({
+    v7_fetcherPersist: false,
     v7_normalizeFormMethod: false,
-    v7_prependBasename: false
+    v7_partialHydration: false,
+    v7_prependBasename: false,
+    v7_relativeSplatPath: false
   }, init.future);
   // Cleanup function for history
   let unlistenHistory = null;
@@ -1347,12 +1411,28 @@ function createRouter(init) {
       [route.id]: error
     };
   }
-  let initialized =
-  // All initialMatches need to be loaded before we're ready.  If we have lazy
-  // functions around still then we'll need to run them in initialize()
-  !initialMatches.some(m => m.route.lazy) && (
-  // And we have to either have no loaders or have been provided hydrationData
-  !initialMatches.some(m => m.route.loader) || init.hydrationData != null);
+  let initialized;
+  let hasLazyRoutes = initialMatches.some(m => m.route.lazy);
+  let hasLoaders = initialMatches.some(m => m.route.loader);
+  if (hasLazyRoutes) {
+    // All initialMatches need to be loaded before we're ready.  If we have lazy
+    // functions around still then we'll need to run them in initialize()
+    initialized = false;
+  } else if (!hasLoaders) {
+    // If we've got no loaders to run, then we're good to go
+    initialized = true;
+  } else if (future.v7_partialHydration) {
+    // If partial hydration is enabled, we're initialized so long as we were
+    // provided with hydrationData for every route with a loader, and no loaders
+    // were marked for explicit hydration
+    let loaderData = init.hydrationData ? init.hydrationData.loaderData : null;
+    let errors = init.hydrationData ? init.hydrationData.errors : null;
+    initialized = initialMatches.every(m => m.route.loader && m.route.loader.hydrate !== true && (loaderData && loaderData[m.route.id] !== undefined || errors && errors[m.route.id] !== undefined));
+  } else {
+    // Without partial hydration - we're initialized if we were provided any
+    // hydrationData - which is expected to be complete
+    initialized = init.hydrationData != null;
+  }
   let router;
   let state = {
     historyAction: init.history.action,
@@ -1378,6 +1458,12 @@ function createRouter(init) {
   let pendingPreventScrollReset = false;
   // AbortController for the active navigation
   let pendingNavigationController;
+  // Should the current navigation enable document.startViewTransition?
+  let pendingViewTransitionEnabled = false;
+  // Store applied view transitions so we can apply them on POP
+  let appliedViewTransitions = new Map();
+  // Cleanup function for persisting applied transitions to sessionStorage
+  let removePageHideEventListener = null;
   // We use this to avoid touching history in completeNavigation if a
   // revalidation is entirely uninterrupted
   let isUninterruptedRevalidation = false;
@@ -1406,6 +1492,11 @@ function createRouter(init) {
   let fetchRedirectIds = new Set();
   // Most recent href/match for fetcher.load calls for fetchers
   let fetchLoadMatches = new Map();
+  // Ref-count mounted fetchers so we know when it's ok to clean them up
+  let activeFetchers = new Map();
+  // Fetchers that have requested a delete when using v7_fetcherPersist,
+  // they'll be officially removed after they return to idle
+  let deletedFetchers = new Set();
   // Store DeferredData instances for active route matches.  When a
   // route loader returns defer() we stick one in here.  Then, when a nested
   // promise resolves we update loaderData.  If a new navigation starts we
@@ -1471,13 +1562,23 @@ function createRouter(init) {
       }
       return startNavigation(historyAction, location);
     });
+    if (isBrowser) {
+      // FIXME: This feels gross.  How can we cleanup the lines between
+      // scrollRestoration/appliedTransitions persistance?
+      restoreAppliedTransitions(routerWindow, appliedViewTransitions);
+      let _saveAppliedTransitions = () => persistAppliedTransitions(routerWindow, appliedViewTransitions);
+      routerWindow.addEventListener("pagehide", _saveAppliedTransitions);
+      removePageHideEventListener = () => routerWindow.removeEventListener("pagehide", _saveAppliedTransitions);
+    }
     // Kick off initial data load if needed.  Use Pop to avoid modifying history
     // Note we don't do any handling of lazy here.  For SPA's it'll get handled
     // in the normal navigation flow.  For SSR it's expected that lazy modules are
     // resolved prior to router creation since we can't go into a fallbackElement
     // UI for SSR'd apps
     if (!state.initialized) {
-      startNavigation(Action.Pop, state.location);
+      startNavigation(Action.Pop, state.location, {
+        initialHydration: true
+      });
     }
     return router;
   }
@@ -1485,6 +1586,9 @@ function createRouter(init) {
   function dispose() {
     if (unlistenHistory) {
       unlistenHistory();
+    }
+    if (removePageHideEventListener) {
+      removePageHideEventListener();
     }
     subscribers.clear();
     pendingNavigationController && pendingNavigationController.abort();
@@ -1497,17 +1601,53 @@ function createRouter(init) {
     return () => subscribers.delete(fn);
   }
   // Update our state and notify the calling context of the change
-  function updateState(newState) {
+  function updateState(newState, opts) {
+    if (opts === void 0) {
+      opts = {};
+    }
     state = _extends({}, state, newState);
-    subscribers.forEach(subscriber => subscriber(state));
+    // Prep fetcher cleanup so we can tell the UI which fetcher data entries
+    // can be removed
+    let completedFetchers = [];
+    let deletedFetchersKeys = [];
+    if (future.v7_fetcherPersist) {
+      state.fetchers.forEach((fetcher, key) => {
+        if (fetcher.state === "idle") {
+          if (deletedFetchers.has(key)) {
+            // Unmounted from the UI and can be totally removed
+            deletedFetchersKeys.push(key);
+          } else {
+            // Returned to idle but still mounted in the UI, so semi-remains for
+            // revalidations and such
+            completedFetchers.push(key);
+          }
+        }
+      });
+    }
+    // Iterate over a local copy so that if flushSync is used and we end up
+    // removing and adding a new subscriber due to the useCallback dependencies,
+    // we don't get ourselves into a loop calling the new subscriber immediately
+    [...subscribers].forEach(subscriber => subscriber(state, {
+      deletedFetchers: deletedFetchersKeys,
+      unstable_viewTransitionOpts: opts.viewTransitionOpts,
+      unstable_flushSync: opts.flushSync === true
+    }));
+    // Remove idle fetchers from state since we only care about in-flight fetchers.
+    if (future.v7_fetcherPersist) {
+      completedFetchers.forEach(key => state.fetchers.delete(key));
+      deletedFetchersKeys.forEach(key => deleteFetcher(key));
+    }
   }
   // Complete a navigation returning the state.navigation back to the IDLE_NAVIGATION
   // and setting state.[historyAction/location/matches] to the new route.
   // - Location is a required param
   // - Navigation will always be set to IDLE_NAVIGATION
   // - Can pass any other state in newState
-  function completeNavigation(location, newState) {
+  function completeNavigation(location, newState, _temp) {
     var _location$state, _location$state2;
+    let {
+      flushSync
+    } = _temp === void 0 ? {} : _temp;
     // Deduce if we're in a loading/actionReload state:
     // - We have committed actionData in the store
     // - The current navigation was a mutation submission
@@ -1550,6 +1690,38 @@ function createRouter(init) {
     } else if (pendingAction === Action.Replace) {
       init.history.replace(location, location.state);
     }
+    let viewTransitionOpts;
+    // On POP, enable transitions if they were enabled on the original navigation
+    if (pendingAction === Action.Pop) {
+      // Forward takes precedence so they behave like the original navigation
+      let priorPaths = appliedViewTransitions.get(state.location.pathname);
+      if (priorPaths && priorPaths.has(location.pathname)) {
+        viewTransitionOpts = {
+          currentLocation: state.location,
+          nextLocation: location
+        };
+      } else if (appliedViewTransitions.has(location.pathname)) {
+        // If we don't have a previous forward nav, assume we're popping back to
+        // the new location and enable if that location previously enabled
+        viewTransitionOpts = {
+          currentLocation: location,
+          nextLocation: state.location
+        };
+      }
+    } else if (pendingViewTransitionEnabled) {
+      // Store the applied transition on PUSH/REPLACE
+      let toPaths = appliedViewTransitions.get(state.location.pathname);
+      if (toPaths) {
+        toPaths.add(location.pathname);
+      } else {
+        toPaths = new Set([location.pathname]);
+        appliedViewTransitions.set(state.location.pathname, toPaths);
+      }
+      viewTransitionOpts = {
+        currentLocation: state.location,
+        nextLocation: location
+      };
+    }
     updateState(_extends({}, newState, {
       actionData,
       loaderData,
@@ -1561,10 +1733,14 @@ function createRouter(init) {
       restoreScrollPosition: getSavedScrollPosition(location, newState.matches || state.matches),
       preventScrollReset,
       blockers
-    }));
+    }), {
+      viewTransitionOpts,
+      flushSync: flushSync === true
+    });
     // Reset stateful navigation vars
     pendingAction = Action.Pop;
     pendingPreventScrollReset = false;
+    pendingViewTransitionEnabled = false;
     isUninterruptedRevalidation = false;
     isRevalidationRequired = false;
     cancelledDeferredRoutes = [];
@@ -1577,7 +1753,7 @@ function createRouter(init) {
       init.history.go(to);
       return;
     }
-    let normalizedPath = normalizeTo(state.location, state.matches, basename, future.v7_prependBasename, to, opts == null ? void 0 : opts.fromRouteId, opts == null ? void 0 : opts.relative);
+    let normalizedPath = normalizeTo(state.location, state.matches, basename, future.v7_prependBasename, to, future.v7_relativeSplatPath, opts == null ? void 0 : opts.fromRouteId, opts == null ? void 0 : opts.relative);
     let {
       path,
       submission,
@@ -1603,6 +1779,7 @@ function createRouter(init) {
       historyAction = Action.Replace;
     }
     let preventScrollReset = opts && "preventScrollReset" in opts ? opts.preventScrollReset === true : undefined;
+    let flushSync = (opts && opts.unstable_flushSync) === true;
     let blockerKey = shouldBlockNavigation({
       currentLocation,
       nextLocation,
@@ -1639,7 +1816,9 @@ function createRouter(init) {
       // render at the right error boundary after we match routes
       pendingError: error,
       preventScrollReset,
-      replace: opts && opts.replace
+      replace: opts && opts.replace,
+      enableViewTransition: opts && opts.unstable_viewTransition,
+      flushSync
     });
   }
   // Revalidate all current loaders.  If a navigation is in progress or if this
@@ -1686,9 +1865,11 @@ function createRouter(init) {
     // and track whether we should reset scroll on completion
     saveScrollPosition(state.location, state.matches);
     pendingPreventScrollReset = (opts && opts.preventScrollReset) === true;
+    pendingViewTransitionEnabled = (opts && opts.enableViewTransition) === true;
     let routesToUse = inFlightDataRoutes || dataRoutes;
     let loadingNavigation = opts && opts.overrideNavigation;
     let matches = matchRoutes(routesToUse, location, basename);
+    let flushSync = (opts && opts.flushSync) === true;
     // Short circuit with a 404 on the root error boundary if we match nothing
     if (!matches) {
       let error = getInternalRouterError(404, {
@@ -1706,6 +1887,8 @@ function createRouter(init) {
         errors: {
           [route.id]: error
         }
+      }, {
+        flushSync
       });
       return;
     }
@@ -1718,6 +1901,8 @@ function createRouter(init) {
     if (state.initialized && !isRevalidationRequired && isHashChangeOnly(state.location, location) && !(opts && opts.submission && isMutationMethod(opts.submission.formMethod))) {
       completeNavigation(location, {
         matches
+      }, {
+        flushSync
       });
       return;
     }
@@ -1737,7 +1922,8 @@ function createRouter(init) {
     } else if (opts && opts.submission && isMutationMethod(opts.submission.formMethod)) {
       // Call action if we received an action submission
       let actionOutput = await handleAction(request, location, opts.submission, matches, {
-        replace: opts.replace
+        replace: opts.replace,
+        flushSync
       });
       if (actionOutput.shortCircuited) {
         return;
@@ -1745,6 +1931,7 @@ function createRouter(init) {
       pendingActionData = actionOutput.pendingActionData;
       pendingError = actionOutput.pendingActionError;
       loadingNavigation = getLoadingNavigation(location, opts.submission);
+      flushSync = false;
       // Create a GET request for the loaders
       request = new Request(request.url, {
         signal: request.signal
@@ -1755,7 +1942,7 @@ function createRouter(init) {
       shortCircuited,
       loaderData,
       errors
-    } = await handleLoaders(request, location, matches, loadingNavigation, opts && opts.submission, opts && opts.fetcherSubmission, opts && opts.replace, pendingActionData, pendingError);
+    } = await handleLoaders(request, location, matches, loadingNavigation, opts && opts.submission, opts && opts.fetcherSubmission, opts && opts.replace, opts && opts.initialHydration === true, flushSync, pendingActionData, pendingError);
     if (shortCircuited) {
       return;
     }
@@ -1783,6 +1970,8 @@ function createRouter(init) {
     let navigation = getSubmittingNavigation(location, submission);
     updateState({
       navigation
+    }, {
+      flushSync: opts.flushSync === true
     });
     // Call our action and get the result
     let result;
@@ -1797,7 +1986,7 @@ function createRouter(init) {
         })
       };
     } else {
-      result = await callLoaderOrAction("action", request, actionMatch, matches, manifest, mapRouteProperties, basename);
+      result = await callLoaderOrAction("action", request, actionMatch, matches, manifest, mapRouteProperties, basename, future.v7_relativeSplatPath);
       if (request.signal.aborted) {
         return {
           shortCircuited: true
@@ -1854,14 +2043,14 @@ function createRouter(init) {
   }
   // Call all applicable loaders for the given matches, handling redirects,
   // errors, etc.
-  async function handleLoaders(request, location, matches, overrideNavigation, submission, fetcherSubmission, replace, pendingActionData, pendingError) {
+  async function handleLoaders(request, location, matches, overrideNavigation, submission, fetcherSubmission, replace, initialHydration, flushSync, pendingActionData, pendingError) {
     // Figure out the right navigation we want to use for data loading
     let loadingNavigation = overrideNavigation || getLoadingNavigation(location, submission);
     // If this was a redirect from an action we don't have a "submission" but
     // we have it on the loading navigation so use that if available
     let activeSubmission = submission || fetcherSubmission || getSubmissionFromNavigation(loadingNavigation);
     let routesToUse = inFlightDataRoutes || dataRoutes;
-    let [matchesToLoad, revalidatingFetchers] = getMatchesToLoad(init.history, state, matches, activeSubmission, location, isRevalidationRequired, cancelledDeferredRoutes, cancelledFetcherLoads, fetchLoadMatches, fetchRedirectIds, routesToUse, basename, pendingActionData, pendingError);
+    let [matchesToLoad, revalidatingFetchers] = getMatchesToLoad(init.history, state, matches, activeSubmission, location, future.v7_partialHydration && initialHydration === true, isRevalidationRequired, cancelledDeferredRoutes, cancelledFetcherLoads, deletedFetchers, fetchLoadMatches, fetchRedirectIds, routesToUse, basename, pendingActionData, pendingError);
     // Cancel pending deferreds for no-longer-matched routes or routes we're
     // about to reload.  Note that if this is an action reload we would have
     // already cancelled all pending deferreds so this would be a no-op
@@ -1879,7 +2068,9 @@ function createRouter(init) {
         actionData: pendingActionData
       } : {}, updatedFetchers ? {
         fetchers: new Map(state.fetchers)
-      } : {}));
+      } : {}), {
+        flushSync
+      });
       return {
         shortCircuited: true
       };
@@ -1888,7 +2079,9 @@ function createRouter(init) {
     // state.  If not, we need to switch to our loading state and load data,
     // preserving any new action data or existing action data (in the case of
     // a revalidation interrupting an actionReload)
-    if (!isUninterruptedRevalidation) {
+    // If we have partialHydration enabled, then don't update the state for the
+    // initial data load since it's not a "navigation"
+    if (!isUninterruptedRevalidation && (!future.v7_partialHydration || !initialHydration)) {
       revalidatingFetchers.forEach(rf => {
         let fetcher = state.fetchers.get(rf.key);
         let revalidatingFetcher = getLoadingFetcher(undefined, fetcher ? fetcher.data : undefined);
@@ -1903,7 +2096,9 @@ function createRouter(init) {
         actionData
       } : {}, revalidatingFetchers.length > 0 ? {
         fetchers: new Map(state.fetchers)
-      } : {}));
+      } : {}), {
+        flushSync
+      });
     }
     revalidatingFetchers.forEach(rf => {
       if (fetchControllers.has(rf.key)) {
@@ -1971,6 +2166,18 @@ function createRouter(init) {
         }
       });
     });
+    // During partial hydration, preserve SSR errors for routes that don't re-run
+    if (future.v7_partialHydration && initialHydration && state.errors) {
+      Object.entries(state.errors).filter(_ref2 => {
+        let [id] = _ref2;
+        return !matchesToLoad.some(m => m.route.id === id);
+      }).forEach(_ref3 => {
+        let [routeId, error] = _ref3;
+        errors = Object.assign(errors || {}, {
+          [routeId]: error
+        });
+      });
+    }
     let updatedFetchers = markFetchRedirectsDone();
     let didAbortFetchLoads = abortStaleFetchLoads(pendingNavigationLoadId);
     let shouldUpdateFetchers = updatedFetchers || didAbortFetchLoads || revalidatingFetchers.length > 0;
@@ -1981,22 +2188,22 @@ function createRouter(init) {
       fetchers: new Map(state.fetchers)
     } : {});
   }
-  function getFetcher(key) {
-    return state.fetchers.get(key) || IDLE_FETCHER;
-  }
   // Trigger a fetcher load/submit for the given fetcher key
   function fetch(key, routeId, href, opts) {
     if (isServer) {
       throw new Error("router.fetch() was called during the server render, but it shouldn't be. " + "You are likely calling a useFetcher() method in the body of your component. " + "Try moving it to a useEffect or a callback.");
     }
     if (fetchControllers.has(key)) abortFetcher(key);
+    let flushSync = (opts && opts.unstable_flushSync) === true;
     let routesToUse = inFlightDataRoutes || dataRoutes;
-    let normalizedPath = normalizeTo(state.location, state.matches, basename, future.v7_prependBasename, href, routeId, opts == null ? void 0 : opts.relative);
+    let normalizedPath = normalizeTo(state.location, state.matches, basename, future.v7_prependBasename, href, future.v7_relativeSplatPath, routeId, opts == null ? void 0 : opts.relative);
     let matches = matchRoutes(routesToUse, normalizedPath, basename);
     if (!matches) {
       setFetcherError(key, routeId, getInternalRouterError(404, {
         pathname: normalizedPath
-      }));
+      }), {
+        flushSync
+      });
       return;
     }
     let {
@@ -2005,13 +2212,15 @@ function createRouter(init) {
       error
     } = normalizeNavigateOptions(future.v7_normalizeFormMethod, true, normalizedPath, opts);
     if (error) {
-      setFetcherError(key, routeId, error);
+      setFetcherError(key, routeId, error, {
+        flushSync
+      });
       return;
     }
     let match = getTargetMatch(matches, path);
     pendingPreventScrollReset = (opts && opts.preventScrollReset) === true;
     if (submission && isMutationMethod(submission.formMethod)) {
-      handleFetcherAction(key, routeId, path, match, matches, submission);
+      handleFetcherAction(key, routeId, path, match, matches, flushSync, submission);
       return;
     }
     // Store off the match so we can call it's shouldRevalidate on subsequent
@@ -2020,11 +2229,11 @@ function createRouter(init) {
       routeId,
       path
     });
-    handleFetcherLoader(key, routeId, path, match, matches, submission);
+    handleFetcherLoader(key, routeId, path, match, matches, flushSync, submission);
   }
   // Call the action for the matched fetcher.submit(), and then handle redirects,
   // errors, and revalidation
-  async function handleFetcherAction(key, routeId, path, match, requestMatches, submission) {
+  async function handleFetcherAction(key, routeId, path, match, requestMatches, flushSync, submission) {
     interruptActiveLoads();
     fetchLoadMatches.delete(key);
     if (!match.route.action && !match.route.lazy) {
@@ -2033,60 +2242,62 @@ function createRouter(init) {
         pathname: path,
         routeId: routeId
       });
-      setFetcherError(key, routeId, error);
+      setFetcherError(key, routeId, error, {
+        flushSync
+      });
       return;
     }
     // Put this fetcher into it's submitting state
     let existingFetcher = state.fetchers.get(key);
-    let fetcher = getSubmittingFetcher(submission, existingFetcher);
-    state.fetchers.set(key, fetcher);
-    updateState({
-      fetchers: new Map(state.fetchers)
+    updateFetcherState(key, getSubmittingFetcher(submission, existingFetcher), {
+      flushSync
     });
     // Call the action for the fetcher
     let abortController = new AbortController();
     let fetchRequest = createClientSideRequest(init.history, path, abortController.signal, submission);
     fetchControllers.set(key, abortController);
     let originatingLoadId = incrementingLoadId;
-    let actionResult = await callLoaderOrAction("action", fetchRequest, match, requestMatches, manifest, mapRouteProperties, basename);
+    let actionResult = await callLoaderOrAction("action", fetchRequest, match, requestMatches, manifest, mapRouteProperties, basename, future.v7_relativeSplatPath);
     if (fetchRequest.signal.aborted) {
-      // We can delete this so long as we weren't aborted by ou our own fetcher
+      // We can delete this so long as we weren't aborted by our own fetcher
       // re-submit which would have put _new_ controller is in fetchControllers
       if (fetchControllers.get(key) === abortController) {
         fetchControllers.delete(key);
       }
       return;
     }
-    if (isRedirectResult(actionResult)) {
-      fetchControllers.delete(key);
-      if (pendingNavigationLoadId > originatingLoadId) {
-        // A new navigation was kicked off after our action started, so that
-        // should take precedence over this redirect navigation.  We already
-        // set isRevalidationRequired so all loaders for the new route should
-        // fire unless opted out via shouldRevalidate
-        let doneFetcher = getDoneFetcher(undefined);
-        state.fetchers.set(key, doneFetcher);
-        updateState({
-          fetchers: new Map(state.fetchers)
-        });
+    // When using v7_fetcherPersist, we don't want errors bubbling up to the UI
+    // or redirects processed for unmounted fetchers so we just revert them to
+    // idle
+    if (future.v7_fetcherPersist && deletedFetchers.has(key)) {
+      if (isRedirectResult(actionResult) || isErrorResult(actionResult)) {
+        updateFetcherState(key, getDoneFetcher(undefined));
         return;
-      } else {
-        fetchRedirectIds.add(key);
-        let loadingFetcher = getLoadingFetcher(submission);
-        state.fetchers.set(key, loadingFetcher);
-        updateState({
-          fetchers: new Map(state.fetchers)
-        });
-        return startRedirectNavigation(state, actionResult, {
-          submission,
-          isFetchActionRedirect: true
-        });
       }
-    }
-    // Process any non-redirect errors thrown
-    if (isErrorResult(actionResult)) {
-      setFetcherError(key, routeId, actionResult.error);
-      return;
+      // Let SuccessResult's fall through for revalidation
+    } else {
+      if (isRedirectResult(actionResult)) {
+        fetchControllers.delete(key);
+        if (pendingNavigationLoadId > originatingLoadId) {
+          // A new navigation was kicked off after our action started, so that
+          // should take precedence over this redirect navigation.  We already
+          // set isRevalidationRequired so all loaders for the new route should
+          // fire unless opted out via shouldRevalidate
+          updateFetcherState(key, getDoneFetcher(undefined));
+          return;
+        } else {
+          fetchRedirectIds.add(key);
+          updateFetcherState(key, getLoadingFetcher(submission));
+          return startRedirectNavigation(state, actionResult, {
+            fetcherSubmission: submission
+          });
+        }
+      }
+      // Process any non-redirect errors thrown
+      if (isErrorResult(actionResult)) {
+        setFetcherError(key, routeId, actionResult.error);
+        return;
+      }
     }
     if (isDeferredResult(actionResult)) {
       throw getInternalRouterError(400, {
@@ -2104,7 +2315,7 @@ function createRouter(init) {
     fetchReloadIds.set(key, loadId);
     let loadFetcher = getLoadingFetcher(submission, actionResult.data);
     state.fetchers.set(key, loadFetcher);
-    let [matchesToLoad, revalidatingFetchers] = getMatchesToLoad(init.history, state, matches, submission, nextLocation, isRevalidationRequired, cancelledDeferredRoutes, cancelledFetcherLoads, fetchLoadMatches, fetchRedirectIds, routesToUse, basename, {
+    let [matchesToLoad, revalidatingFetchers] = getMatchesToLoad(init.history, state, matches, submission, nextLocation, false, isRevalidationRequired, cancelledDeferredRoutes, cancelledFetcherLoads, deletedFetchers, fetchLoadMatches, fetchRedirectIds, routesToUse, basename, {
       [match.route.id]: actionResult.data
     }, undefined // No need to send through errors since we short circuit above
     );
@@ -2162,7 +2373,7 @@ function createRouter(init) {
       let doneFetcher = getDoneFetcher(actionResult.data);
       state.fetchers.set(key, doneFetcher);
     }
-    let didAbortFetchLoads = abortStaleFetchLoads(loadId);
+    abortStaleFetchLoads(loadId);
     // If we are currently in a navigation loading state and this fetcher is
     // more recent than the navigation, we want the newer data so abort the
     // navigation and complete it with the fetcher data
@@ -2179,30 +2390,26 @@ function createRouter(init) {
       // otherwise just update with the fetcher data, preserving any existing
       // loaderData for loaders that did not need to reload.  We have to
       // manually merge here since we aren't going through completeNavigation
-      updateState(_extends({
+      updateState({
         errors,
-        loaderData: mergeLoaderData(state.loaderData, loaderData, matches, errors)
-      }, didAbortFetchLoads || revalidatingFetchers.length > 0 ? {
+        loaderData: mergeLoaderData(state.loaderData, loaderData, matches, errors),
         fetchers: new Map(state.fetchers)
-      } : {}));
+      });
       isRevalidationRequired = false;
     }
   }
   // Call the matched loader for fetcher.load(), handling redirects, errors, etc.
-  async function handleFetcherLoader(key, routeId, path, match, matches, submission) {
+  async function handleFetcherLoader(key, routeId, path, match, matches, flushSync, submission) {
     let existingFetcher = state.fetchers.get(key);
-    // Put this fetcher into it's loading state
-    let loadingFetcher = getLoadingFetcher(submission, existingFetcher ? existingFetcher.data : undefined);
-    state.fetchers.set(key, loadingFetcher);
-    updateState({
-      fetchers: new Map(state.fetchers)
+    updateFetcherState(key, getLoadingFetcher(submission, existingFetcher ? existingFetcher.data : undefined), {
+      flushSync
     });
     // Call the loader for this fetcher route match
     let abortController = new AbortController();
     let fetchRequest = createClientSideRequest(init.history, path, abortController.signal);
     fetchControllers.set(key, abortController);
     let originatingLoadId = incrementingLoadId;
-    let result = await callLoaderOrAction("loader", fetchRequest, match, matches, manifest, mapRouteProperties, basename);
+    let result = await callLoaderOrAction("loader", fetchRequest, match, matches, manifest, mapRouteProperties, basename, future.v7_relativeSplatPath);
     // Deferred isn't supported for fetcher loads, await everything and treat it
     // as a normal load.  resolveDeferredData will return undefined if this
     // fetcher gets aborted, so we just leave result untouched and short circuit
@@ -2218,16 +2425,18 @@ function createRouter(init) {
     if (fetchRequest.signal.aborted) {
       return;
     }
+    // We don't want errors bubbling up or redirects followed for unmounted
+    // fetchers, so short circuit here if it was removed from the UI
+    if (deletedFetchers.has(key)) {
+      updateFetcherState(key, getDoneFetcher(undefined));
+      return;
+    }
     // If the loader threw a redirect Response, start a new REPLACE navigation
     if (isRedirectResult(result)) {
       if (pendingNavigationLoadId > originatingLoadId) {
         // A new navigation was kicked off after our loader started, so that
         // should take precedence over this redirect navigation
-        let doneFetcher = getDoneFetcher(undefined);
-        state.fetchers.set(key, doneFetcher);
-        updateState({
-          fetchers: new Map(state.fetchers)
-        });
+        updateFetcherState(key, getDoneFetcher(undefined));
         return;
       } else {
         fetchRedirectIds.add(key);
@@ -2237,26 +2446,12 @@ function createRouter(init) {
     }
     // Process any non-redirect errors thrown
     if (isErrorResult(result)) {
-      let boundaryMatch = findNearestBoundary(state.matches, routeId);
-      state.fetchers.delete(key);
-      // TODO: In remix, this would reset to IDLE_NAVIGATION if it was a catch -
-      // do we need to behave any differently with our non-redirect errors?
-      // What if it was a non-redirect Response?
-      updateState({
-        fetchers: new Map(state.fetchers),
-        errors: {
-          [boundaryMatch.route.id]: result.error
-        }
-      });
+      setFetcherError(key, routeId, result.error);
       return;
     }
     invariant(!isDeferredResult(result), "Unhandled fetcher deferred data");
     // Put the fetcher back into an idle state
-    let doneFetcher = getDoneFetcher(result.data);
-    state.fetchers.set(key, doneFetcher);
-    updateState({
-      fetchers: new Map(state.fetchers)
-    });
+    updateFetcherState(key, getDoneFetcher(result.data));
   }
   /**
    * Utility function to handle redirects returned from an action or loader.
@@ -2277,27 +2472,33 @@ function createRouter(init) {
    * actually touch history until we've processed redirects, so we just use
    * the history action from the original navigation (PUSH or REPLACE).
    */
-  async function startRedirectNavigation(state, redirect, _temp) {
+  async function startRedirectNavigation(state, redirect, _temp2) {
     let {
       submission,
-      replace,
-      isFetchActionRedirect
-    } = _temp === void 0 ? {} : _temp;
+      fetcherSubmission,
+      replace
+    } = _temp2 === void 0 ? {} : _temp2;
     if (redirect.revalidate) {
       isRevalidationRequired = true;
     }
-    let redirectLocation = createLocation(state.location, redirect.location, // TODO: This can be removed once we get rid of useTransition in Remix v2
-    _extends({
+    let redirectLocation = createLocation(state.location, redirect.location, {
       _isRedirect: true
-    }, isFetchActionRedirect ? {
-      _isFetchActionRedirect: true
-    } : {}));
+    });
     invariant(redirectLocation, "Expected a location on the redirect navigation");
-    // Check if this an absolute external redirect that goes to a new origin
-    if (ABSOLUTE_URL_REGEX.test(redirect.location) && isBrowser) {
-      let url = init.history.createURL(redirect.location);
-      let isDifferentBasename = stripBasename(url.pathname, basename) == null;
-      if (routerWindow.location.origin !== url.origin || isDifferentBasename) {
+    if (isBrowser) {
+      let isDocumentReload = false;
+      if (redirect.reloadDocument) {
+        // Hard reload if the response contained X-Remix-Reload-Document
+        isDocumentReload = true;
+      } else if (ABSOLUTE_URL_REGEX.test(redirect.location)) {
+        const url = init.history.createURL(redirect.location);
+        isDocumentReload =
+        // Hard reload if it's an absolute URL to a new origin
+        url.origin !== routerWindow.location.origin ||
+        // Hard reload if it's an absolute URL that does not match our basename
+        stripBasename(url.pathname, basename) == null;
+      }
+      if (isDocumentReload) {
         if (replace) {
           routerWindow.location.replace(redirect.location);
         } else {
@@ -2312,10 +2513,18 @@ function createRouter(init) {
     let redirectHistoryAction = replace === true ? Action.Replace : Action.Push;
     // Use the incoming submission if provided, fallback on the active one in
     // state.navigation
-    let activeSubmission = submission || getSubmissionFromNavigation(state.navigation);
+    let {
+      formMethod,
+      formAction,
+      formEncType
+    } = state.navigation;
+    if (!submission && !fetcherSubmission && formMethod && formAction && formEncType) {
+      submission = getSubmissionFromNavigation(state.navigation);
+    }
     // If this was a 307/308 submission we want to preserve the HTTP method and
     // re-submit the GET/POST/PUT/PATCH/DELETE as a submission navigation to the
     // redirected location
+    let activeSubmission = submission || fetcherSubmission;
     if (redirectPreserveMethodStatusCodes.has(redirect.status) && activeSubmission && isMutationMethod(activeSubmission.formMethod)) {
       await startNavigation(redirectHistoryAction, redirectLocation, {
         submission: _extends({}, activeSubmission, {
@@ -2324,20 +2533,14 @@ function createRouter(init) {
         // Preserve this flag across redirects
         preventScrollReset: pendingPreventScrollReset
       });
-    } else if (isFetchActionRedirect) {
-      // For a fetch action redirect, we kick off a new loading navigation
-      // without the fetcher submission, but we send it along for shouldRevalidate
-      await startNavigation(redirectHistoryAction, redirectLocation, {
-        overrideNavigation: getLoadingNavigation(redirectLocation),
-        fetcherSubmission: activeSubmission,
-        // Preserve this flag across redirects
-        preventScrollReset: pendingPreventScrollReset
-      });
     } else {
-      // If we have a submission, we will preserve it through the redirect navigation
-      let overrideNavigation = getLoadingNavigation(redirectLocation, activeSubmission);
+      // If we have a navigation submission, we will preserve it through the
+      // redirect navigation
+      let overrideNavigation = getLoadingNavigation(redirectLocation, submission);
       await startNavigation(redirectHistoryAction, redirectLocation, {
         overrideNavigation,
+        // Send fetcher submissions through for shouldRevalidate
+        fetcherSubmission,
         // Preserve this flag across redirects
         preventScrollReset: pendingPreventScrollReset
       });
@@ -2347,9 +2550,9 @@ function createRouter(init) {
     // Call all navigation loaders and revalidating fetcher loaders in parallel,
     // then slice off the results into separate arrays so we can handle them
     // accordingly
-    let results = await Promise.all([...matchesToLoad.map(match => callLoaderOrAction("loader", request, match, matches, manifest, mapRouteProperties, basename)), ...fetchersToLoad.map(f => {
+    let results = await Promise.all([...matchesToLoad.map(match => callLoaderOrAction("loader", request, match, matches, manifest, mapRouteProperties, basename, future.v7_relativeSplatPath)), ...fetchersToLoad.map(f => {
       if (f.matches && f.match && f.controller) {
-        return callLoaderOrAction("loader", createClientSideRequest(init.history, f.path, f.controller.signal), f.match, f.matches, manifest, mapRouteProperties, basename);
+        return callLoaderOrAction("loader", createClientSideRequest(init.history, f.path, f.controller.signal), f.match, f.matches, manifest, mapRouteProperties, basename, future.v7_relativeSplatPath);
       } else {
         let error = {
           type: ResultType.error,
@@ -2383,7 +2586,21 @@ function createRouter(init) {
       }
     });
   }
-  function setFetcherError(key, routeId, error) {
+  function updateFetcherState(key, fetcher, opts) {
+    if (opts === void 0) {
+      opts = {};
+    }
+    state.fetchers.set(key, fetcher);
+    updateState({
+      fetchers: new Map(state.fetchers)
+    }, {
+      flushSync: (opts && opts.flushSync) === true
+    });
+  }
+  function setFetcherError(key, routeId, error, opts) {
+    if (opts === void 0) {
+      opts = {};
+    }
     let boundaryMatch = findNearestBoundary(state.matches, routeId);
     deleteFetcher(key);
     updateState({
@@ -2391,7 +2608,20 @@ function createRouter(init) {
         [boundaryMatch.route.id]: error
       },
       fetchers: new Map(state.fetchers)
+    }, {
+      flushSync: (opts && opts.flushSync) === true
     });
+  }
+  function getFetcher(key) {
+    if (future.v7_fetcherPersist) {
+      activeFetchers.set(key, (activeFetchers.get(key) || 0) + 1);
+      // If this fetcher was previously marked for deletion, unmark it since we
+      // have a new instance
+      if (deletedFetchers.has(key)) {
+        deletedFetchers.delete(key);
+      }
+    }
+    return state.fetchers.get(key) || IDLE_FETCHER;
   }
   function deleteFetcher(key) {
     let fetcher = state.fetchers.get(key);
@@ -2404,7 +2634,24 @@ function createRouter(init) {
     fetchLoadMatches.delete(key);
     fetchReloadIds.delete(key);
     fetchRedirectIds.delete(key);
+    deletedFetchers.delete(key);
     state.fetchers.delete(key);
+  }
+  function deleteFetcherAndUpdateState(key) {
+    if (future.v7_fetcherPersist) {
+      let count = (activeFetchers.get(key) || 0) - 1;
+      if (count <= 0) {
+        activeFetchers.delete(key);
+        deletedFetchers.add(key);
+      } else {
+        activeFetchers.set(key, count);
+      }
+    } else {
+      deleteFetcher(key);
+    }
+    updateState({
+      fetchers: new Map(state.fetchers)
+    });
   }
   function abortFetcher(key) {
     let controller = fetchControllers.get(key);
@@ -2473,12 +2720,12 @@ function createRouter(init) {
       blockers
     });
   }
-  function shouldBlockNavigation(_ref2) {
+  function shouldBlockNavigation(_ref4) {
     let {
       currentLocation,
       nextLocation,
       historyAction
-    } = _ref2;
+    } = _ref4;
     if (blockerFunctions.size === 0) {
       return;
     }
@@ -2545,7 +2792,7 @@ function createRouter(init) {
   }
   function getScrollKey(location, matches) {
     if (getScrollRestorationKey) {
-      let key = getScrollRestorationKey(location, matches.map(m => createUseMatchesMatch(m, state.loaderData)));
+      let key = getScrollRestorationKey(location, matches.map(m => convertRouteMatchToUiMatch(m, state.loaderData)));
       return key || location.key;
     }
     return location.key;
@@ -2574,11 +2821,17 @@ function createRouter(init) {
     get basename() {
       return basename;
     },
+    get future() {
+      return future;
+    },
     get state() {
       return state;
     },
     get routes() {
       return dataRoutes;
+    },
+    get window() {
+      return routerWindow;
     },
     initialize,
     subscribe,
@@ -2591,7 +2844,7 @@ function createRouter(init) {
     createHref: to => init.history.createHref(to),
     encodeLocation: to => init.history.encodeLocation(to),
     getFetcher,
-    deleteFetcher,
+    deleteFetcher: deleteFetcherAndUpdateState,
     dispose,
     getBlocker,
     deleteBlocker,
@@ -2624,6 +2877,11 @@ function createStaticHandler(routes, opts) {
   } else {
     mapRouteProperties = defaultMapRouteProperties;
   }
+  // Config driven behavior flags
+  let future = _extends({
+    v7_relativeSplatPath: false,
+    v7_throwAbortReason: false
+  }, opts ? opts.future : null);
   let dataRoutes = convertRoutesToDataRoutes(routes, mapRouteProperties, undefined, manifest);
   /**
    * The query() method is intended for document requests, in which we want to
@@ -2644,10 +2902,10 @@ function createStaticHandler(routes, opts) {
    * propagate that out and return the raw Response so the HTTP server can
    * return it directly.
    */
-  async function query(request, _temp2) {
+  async function query(request, _temp3) {
     let {
       requestContext
-    } = _temp2 === void 0 ? {} : _temp2;
+    } = _temp3 === void 0 ? {} : _temp3;
     let url = new URL(request.url);
     let method = request.method;
     let location = createLocation("", createPath(url), null, "default");
@@ -2730,11 +2988,11 @@ function createStaticHandler(routes, opts) {
    * code.  Examples here are 404 and 405 errors that occur prior to reaching
    * any user-defined loaders.
    */
-  async function queryRoute(request, _temp3) {
+  async function queryRoute(request, _temp4) {
     let {
       routeId,
       requestContext
-    } = _temp3 === void 0 ? {} : _temp3;
+    } = _temp4 === void 0 ? {} : _temp4;
     let url = new URL(request.url);
     let method = request.method;
     let location = createLocation("", createPath(url), null, "default");
@@ -2804,7 +3062,7 @@ function createStaticHandler(routes, opts) {
       // it to bail out and then return or throw here based on whether the user
       // returned or threw
       if (isQueryRouteResponse(e)) {
-        if (e.type === ResultType.error && !isRedirectResponse(e.response)) {
+        if (e.type === ResultType.error) {
           throw e.response;
         }
         return e.response;
@@ -2833,14 +3091,13 @@ function createStaticHandler(routes, opts) {
         error
       };
     } else {
-      result = await callLoaderOrAction("action", request, actionMatch, matches, manifest, mapRouteProperties, basename, {
+      result = await callLoaderOrAction("action", request, actionMatch, matches, manifest, mapRouteProperties, basename, future.v7_relativeSplatPath, {
         isStaticRequest: true,
         isRouteRequest,
         requestContext
       });
       if (request.signal.aborted) {
-        let method = isRouteRequest ? "queryRoute" : "query";
-        throw new Error(method + "() call aborted");
+        throwStaticHandlerAbortedError(request, isRouteRequest, future);
       }
     }
     if (isRedirectResult(result)) {
@@ -2948,14 +3205,13 @@ function createStaticHandler(routes, opts) {
         activeDeferreds: null
       };
     }
-    let results = await Promise.all([...matchesToLoad.map(match => callLoaderOrAction("loader", request, match, matches, manifest, mapRouteProperties, basename, {
+    let results = await Promise.all([...matchesToLoad.map(match => callLoaderOrAction("loader", request, match, matches, manifest, mapRouteProperties, basename, future.v7_relativeSplatPath, {
       isStaticRequest: true,
       isRouteRequest,
       requestContext
     }))]);
     if (request.signal.aborted) {
-      let method = isRouteRequest ? "queryRoute" : "query";
-      throw new Error(method + "() call aborted");
+      throwStaticHandlerAbortedError(request, isRouteRequest, future);
     }
     // Process and commit output from loaders
     let activeDeferreds = new Map();
@@ -2988,24 +3244,29 @@ function createStaticHandler(routes, opts) {
  */
 function getStaticContextFromError(routes, context, error) {
   let newContext = _extends({}, context, {
-    statusCode: 500,
+    statusCode: isRouteErrorResponse(error) ? error.status : 500,
     errors: {
       [context._deepestRenderedBoundaryId || routes[0].id]: error
     }
   });
   return newContext;
 }
+function throwStaticHandlerAbortedError(request, isRouteRequest, future) {
+  if (future.v7_throwAbortReason && request.signal.reason !== undefined) {
+    throw request.signal.reason;
+  }
+  let method = isRouteRequest ? "queryRoute" : "query";
+  throw new Error(method + "() call aborted: " + request.method + " " + request.url);
+}
 function isSubmissionNavigation(opts) {
   return opts != null && ("formData" in opts && opts.formData != null || "body" in opts && opts.body !== undefined);
 }
-function normalizeTo(location, matches, basename, prependBasename, to, fromRouteId, relative) {
+function normalizeTo(location, matches, basename, prependBasename, to, v7_relativeSplatPath, fromRouteId, relative) {
   let contextualMatches;
   let activeRouteMatch;
-  if (fromRouteId != null && relative !== "path") {
+  if (fromRouteId) {
     // Grab matches up to the calling route so our route-relative logic is
-    // relative to the correct source route.  When using relative:path,
-    // fromRouteId is ignored since that is always relative to the current
-    // location path
+    // relative to the correct source route
     contextualMatches = [];
     for (let match of matches) {
       contextualMatches.push(match);
@@ -3019,7 +3280,7 @@ function normalizeTo(location, matches, basename, prependBasename, to, fromRoute
     activeRouteMatch = matches[matches.length - 1];
   }
   // Resolve the relative path
-  let path = resolveTo(to ? to : ".", getPathContributingMatches(contextualMatches).map(m => m.pathnameBase), stripBasename(location.pathname, basename) || location.pathname, relative === "path");
+  let path = resolveTo(to ? to : ".", getResolveToMatches(contextualMatches, v7_relativeSplatPath), stripBasename(location.pathname, basename) || location.pathname, relative === "path");
   // When `to` is not specified we inherit search/hash from the current
   // location, unlike when to="." and we just inherit the path.
   // See https://github.com/remix-run/remix/issues/927
@@ -3075,8 +3336,8 @@ function normalizeNavigateOptions(normalizeFormMethod, isFetcher, path, opts) {
       }
       let text = typeof opts.body === "string" ? opts.body : opts.body instanceof FormData || opts.body instanceof URLSearchParams ?
       // https://html.spec.whatwg.org/multipage/form-control-infrastructure.html#plain-text-form-data
-      Array.from(opts.body.entries()).reduce((acc, _ref3) => {
-        let [name, value] = _ref3;
+      Array.from(opts.body.entries()).reduce((acc, _ref5) => {
+        let [name, value] = _ref5;
         return "" + acc + name + "=" + value + "\n";
       }, "") : String(opts.body);
       return {
@@ -3176,7 +3437,7 @@ function getLoaderMatchesUntilBoundary(matches, boundaryId) {
   }
   return boundaryMatches;
 }
-function getMatchesToLoad(history, state, matches, submission, location, isRevalidationRequired, cancelledDeferredRoutes, cancelledFetcherLoads, fetchLoadMatches, fetchRedirectIds, routesToUse, basename, pendingActionData, pendingError) {
+function getMatchesToLoad(history, state, matches, submission, location, isInitialLoad, isRevalidationRequired, cancelledDeferredRoutes, cancelledFetcherLoads, deletedFetchers, fetchLoadMatches, fetchRedirectIds, routesToUse, basename, pendingActionData, pendingError) {
   let actionResult = pendingError ? Object.values(pendingError)[0] : pendingActionData ? Object.values(pendingActionData)[0] : undefined;
   let currentUrl = history.createURL(state.location);
   let nextUrl = history.createURL(location);
@@ -3184,12 +3445,23 @@ function getMatchesToLoad(history, state, matches, submission, location, isReval
   let boundaryId = pendingError ? Object.keys(pendingError)[0] : undefined;
   let boundaryMatches = getLoaderMatchesUntilBoundary(matches, boundaryId);
   let navigationMatches = boundaryMatches.filter((match, index) => {
-    if (match.route.lazy) {
+    let {
+      route
+    } = match;
+    if (route.lazy) {
       // We haven't loaded this route yet so we don't know if it's got a loader!
       return true;
     }
-    if (match.route.loader == null) {
+    if (route.loader == null) {
       return false;
+    }
+    if (isInitialLoad) {
+      if (route.loader.hydrate) {
+        return true;
+      }
+      return state.loaderData[route.id] === undefined && (
+      // Don't re-run if the loader ran and threw an error
+      !state.errors || state.errors[route.id] === undefined);
     }
     // Always call the loader on new route instances and pending defer cancellations
     if (isNewLoader(state.loaderData, state.matches[index], match) || cancelledDeferredRoutes.some(id => id === match.route.id)) {
@@ -3220,8 +3492,12 @@ function getMatchesToLoad(history, state, matches, submission, location, isReval
   // Pick fetcher.loads that need to be revalidated
   let revalidatingFetchers = [];
   fetchLoadMatches.forEach((f, key) => {
-    // Don't revalidate if fetcher won't be present in the subsequent render
-    if (!matches.some(m => m.route.id === f.routeId)) {
+    // Don't revalidate:
+    //  - on initial load (shouldn't be any fetchers then anyway)
+    //  - if fetcher won't be present in the subsequent render
+    //    - no longer matches the URL (v7_fetcherPersist=false)
+    //    - was unmounted but persisted due to v7_fetcherPersist=true
+    if (isInitialLoad || !matches.some(m => m.route.id === f.routeId) || deletedFetchers.has(key)) {
       return;
     }
     let fetcherMatches = matchRoutes(routesToUse, f.path, basename);
@@ -3362,7 +3638,7 @@ async function loadLazyRouteModule(route, mapRouteProperties, manifest) {
     lazy: undefined
   }));
 }
-async function callLoaderOrAction(type, request, match, matches, manifest, mapRouteProperties, basename, opts) {
+async function callLoaderOrAction(type, request, match, matches, manifest, mapRouteProperties, basename, v7_relativeSplatPath, opts) {
   if (opts === void 0) {
     opts = {};
   }
@@ -3386,7 +3662,17 @@ async function callLoaderOrAction(type, request, match, matches, manifest, mapRo
     if (match.route.lazy) {
       if (handler) {
         // Run statically defined handler in parallel with lazy()
-        let values = await Promise.all([runHandler(handler), loadLazyRouteModule(match.route, mapRouteProperties, manifest)]);
+        let handlerError;
+        let values = await Promise.all([
+        // If the handler throws, don't let it immediately bubble out,
+        // since we need to let the lazy() execution finish so we know if this
+        // route has a boundary that can handle the error
+        runHandler(handler).catch(e => {
+          handlerError = e;
+        }), loadLazyRouteModule(match.route, mapRouteProperties, manifest)]);
+        if (handlerError) {
+          throw handlerError;
+        }
         result = values[0];
       } else {
         // Load lazy route module, then run any returned handler
@@ -3440,7 +3726,7 @@ async function callLoaderOrAction(type, request, match, matches, manifest, mapRo
       invariant(location, "Redirects returned/thrown from loaders/actions must have a Location header");
       // Support relative routing in internal redirects
       if (!ABSOLUTE_URL_REGEX.test(location)) {
-        location = normalizeTo(new URL(request.url), matches.slice(0, matches.indexOf(match) + 1), basename, true, location);
+        location = normalizeTo(new URL(request.url), matches.slice(0, matches.indexOf(match) + 1), basename, true, location, v7_relativeSplatPath);
       } else if (!opts.isStaticRequest) {
         // Strip off the protocol+origin for same-origin + same-basename absolute
         // redirects. If this is a static request, we can let it go back to the
@@ -3464,32 +3750,44 @@ async function callLoaderOrAction(type, request, match, matches, manifest, mapRo
         type: ResultType.redirect,
         status,
         location,
-        revalidate: result.headers.get("X-Remix-Revalidate") !== null
+        revalidate: result.headers.get("X-Remix-Revalidate") !== null,
+        reloadDocument: result.headers.get("X-Remix-Reload-Document") !== null
       };
     }
     // For SSR single-route requests, we want to hand Responses back directly
     // without unwrapping.  We do this with the QueryRouteResponse wrapper
     // interface so we can know whether it was returned or thrown
     if (opts.isRouteRequest) {
-      // eslint-disable-next-line no-throw-literal
-      throw {
-        type: resultType || ResultType.data,
+      let queryRouteResponse = {
+        type: resultType === ResultType.error ? ResultType.error : ResultType.data,
         response: result
       };
+      throw queryRouteResponse;
     }
     let data;
-    let contentType = result.headers.get("Content-Type");
-    // Check between word boundaries instead of startsWith() due to the last
-    // paragraph of https://httpwg.org/specs/rfc9110.html#field.content-type
-    if (contentType && /\bapplication\/json\b/.test(contentType)) {
-      data = await result.json();
-    } else {
-      data = await result.text();
+    try {
+      let contentType = result.headers.get("Content-Type");
+      // Check between word boundaries instead of startsWith() due to the last
+      // paragraph of https://httpwg.org/specs/rfc9110.html#field.content-type
+      if (contentType && /\bapplication\/json\b/.test(contentType)) {
+        if (result.body == null) {
+          data = null;
+        } else {
+          data = await result.json();
+        }
+      } else {
+        data = await result.text();
+      }
+    } catch (e) {
+      return {
+        type: ResultType.error,
+        error: e
+      };
     }
     if (resultType === ResultType.error) {
       return {
         type: resultType,
-        error: new ErrorResponse(status, result.statusText, data),
+        error: new ErrorResponseImpl(status, result.statusText, data),
         headers: result.headers
       };
     }
@@ -3713,7 +4011,7 @@ function findNearestBoundary(matches, routeId) {
 }
 function getShortCircuitMatches(routes) {
   // Prefer a root layout route if present, otherwise shim in a route object
-  let route = routes.find(r => r.index || !r.path || r.path === "/") || {
+  let route = routes.length === 1 ? routes[0] : routes.find(r => r.index || !r.path || r.path === "/") || {
     id: "__shim-error-route__"
   };
   return {
@@ -3726,13 +4024,13 @@ function getShortCircuitMatches(routes) {
     route
   };
 }
-function getInternalRouterError(status, _temp4) {
+function getInternalRouterError(status, _temp5) {
   let {
     pathname,
     routeId,
     method,
     type
-  } = _temp4 === void 0 ? {} : _temp4;
+  } = _temp5 === void 0 ? {} : _temp5;
   let statusText = "Unknown Server Error";
   let errorMessage = "Unknown @remix-run/router error";
   if (status === 400) {
@@ -3758,7 +4056,7 @@ function getInternalRouterError(status, _temp4) {
       errorMessage = "Invalid request method \"" + method.toUpperCase() + "\"";
     }
   }
-  return new ErrorResponse(status || 500, statusText, new Error(errorMessage), true);
+  return new ErrorResponseImpl(status || 500, statusText, new Error(errorMessage), true);
 }
 // Find any returned redirect errors, starting from the lowest match
 function findRedirect(results) {
@@ -3821,7 +4119,7 @@ function isRedirectResponse(result) {
   return status >= 300 && status <= 399 && location != null;
 }
 function isQueryRouteResponse(obj) {
-  return obj && isResponse(obj.response) && (obj.type === ResultType.data || ResultType.error);
+  return obj && isResponse(obj.response) && (obj.type === ResultType.data || obj.type === ResultType.error);
 }
 function isValidMethod(method) {
   return validRequestMethods.has(method.toLowerCase());
@@ -3884,22 +4182,6 @@ async function resolveDeferredData(result, signal, unwrap) {
 }
 function hasNakedIndexQuery(search) {
   return new URLSearchParams(search).getAll("index").some(v => v === "");
-}
-// Note: This should match the format exported by useMatches, so if you change
-// this please also change that :)  Eventually we'll DRY this up
-function createUseMatchesMatch(match, loaderData) {
-  let {
-    route,
-    pathname,
-    params
-  } = match;
-  return {
-    id: route.id,
-    pathname,
-    params,
-    data: loaderData[route.id],
-    handle: route.handle
-  };
 }
 function getTargetMatch(matches, location) {
   let search = typeof location === "string" ? parsePath(location).search : location.search;
@@ -4003,8 +4285,7 @@ function getLoadingFetcher(submission, data) {
       formData: submission.formData,
       json: submission.json,
       text: submission.text,
-      data,
-      " _hasFetcherDoneAnything ": true
+      data
     };
     return fetcher;
   } else {
@@ -4016,8 +4297,7 @@ function getLoadingFetcher(submission, data) {
       formData: undefined,
       json: undefined,
       text: undefined,
-      data,
-      " _hasFetcherDoneAnything ": true
+      data
     };
     return fetcher;
   }
@@ -4031,8 +4311,7 @@ function getSubmittingFetcher(submission, existingFetcher) {
     formData: submission.formData,
     json: submission.json,
     text: submission.text,
-    data: existingFetcher ? existingFetcher.data : undefined,
-    " _hasFetcherDoneAnything ": true
+    data: existingFetcher ? existingFetcher.data : undefined
   };
   return fetcher;
 }
@@ -4045,10 +4324,37 @@ function getDoneFetcher(data) {
     formData: undefined,
     json: undefined,
     text: undefined,
-    data,
-    " _hasFetcherDoneAnything ": true
+    data
   };
   return fetcher;
+}
+function restoreAppliedTransitions(_window, transitions) {
+  try {
+    let sessionPositions = _window.sessionStorage.getItem(TRANSITIONS_STORAGE_KEY);
+    if (sessionPositions) {
+      let json = JSON.parse(sessionPositions);
+      for (let [k, v] of Object.entries(json || {})) {
+        if (v && Array.isArray(v)) {
+          transitions.set(k, new Set(v || []));
+        }
+      }
+    }
+  } catch (e) {
+    // no-op, use default empty object
+  }
+}
+function persistAppliedTransitions(_window, transitions) {
+  if (transitions.size > 0) {
+    let json = {};
+    for (let [k, v] of transitions) {
+      json[k] = [...v];
+    }
+    try {
+      _window.sessionStorage.setItem(TRANSITIONS_STORAGE_KEY, JSON.stringify(json));
+    } catch (error) {
+      warning(false, "Failed to save applied view transitions in sessionStorage (" + error + ").");
+    }
+  }
 }
 //#endregion
 
@@ -4071,12 +4377,12 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony import */ var react__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! react */ "./node_modules/react/index.js");
 /* harmony import */ var react__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__webpack_require__.n(react__WEBPACK_IMPORTED_MODULE_0__);
 /* harmony import */ var _components_Calc2_styles_calc2_scss__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! @components/Calc2/styles/calc2.scss */ "./source/components/Calc2/styles/calc2.scss");
-function _typeof(obj) { "@babel/helpers - typeof"; return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function (obj) { return typeof obj; } : function (obj) { return obj && "function" == typeof Symbol && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; }, _typeof(obj); }
-function ownKeys(object, enumerableOnly) { var keys = Object.keys(object); if (Object.getOwnPropertySymbols) { var symbols = Object.getOwnPropertySymbols(object); enumerableOnly && (symbols = symbols.filter(function (sym) { return Object.getOwnPropertyDescriptor(object, sym).enumerable; })), keys.push.apply(keys, symbols); } return keys; }
-function _objectSpread(target) { for (var i = 1; i < arguments.length; i++) { var source = null != arguments[i] ? arguments[i] : {}; i % 2 ? ownKeys(Object(source), !0).forEach(function (key) { _defineProperty(target, key, source[key]); }) : Object.getOwnPropertyDescriptors ? Object.defineProperties(target, Object.getOwnPropertyDescriptors(source)) : ownKeys(Object(source)).forEach(function (key) { Object.defineProperty(target, key, Object.getOwnPropertyDescriptor(source, key)); }); } return target; }
+function _typeof(o) { "@babel/helpers - typeof"; return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function (o) { return typeof o; } : function (o) { return o && "function" == typeof Symbol && o.constructor === Symbol && o !== Symbol.prototype ? "symbol" : typeof o; }, _typeof(o); }
+function ownKeys(e, r) { var t = Object.keys(e); if (Object.getOwnPropertySymbols) { var o = Object.getOwnPropertySymbols(e); r && (o = o.filter(function (r) { return Object.getOwnPropertyDescriptor(e, r).enumerable; })), t.push.apply(t, o); } return t; }
+function _objectSpread(e) { for (var r = 1; r < arguments.length; r++) { var t = null != arguments[r] ? arguments[r] : {}; r % 2 ? ownKeys(Object(t), !0).forEach(function (r) { _defineProperty(e, r, t[r]); }) : Object.getOwnPropertyDescriptors ? Object.defineProperties(e, Object.getOwnPropertyDescriptors(t)) : ownKeys(Object(t)).forEach(function (r) { Object.defineProperty(e, r, Object.getOwnPropertyDescriptor(t, r)); }); } return e; }
 function _defineProperty(obj, key, value) { key = _toPropertyKey(key); if (key in obj) { Object.defineProperty(obj, key, { value: value, enumerable: true, configurable: true, writable: true }); } else { obj[key] = value; } return obj; }
-function _toPropertyKey(arg) { var key = _toPrimitive(arg, "string"); return _typeof(key) === "symbol" ? key : String(key); }
-function _toPrimitive(input, hint) { if (_typeof(input) !== "object" || input === null) return input; var prim = input[Symbol.toPrimitive]; if (prim !== undefined) { var res = prim.call(input, hint || "default"); if (_typeof(res) !== "object") return res; throw new TypeError("@@toPrimitive must return a primitive value."); } return (hint === "string" ? String : Number)(input); }
+function _toPropertyKey(t) { var i = _toPrimitive(t, "string"); return "symbol" == _typeof(i) ? i : String(i); }
+function _toPrimitive(t, r) { if ("object" != _typeof(t) || !t) return t; var e = t[Symbol.toPrimitive]; if (void 0 !== e) { var i = e.call(t, r || "default"); if ("object" != _typeof(i)) return i; throw new TypeError("@@toPrimitive must return a primitive value."); } return ("string" === r ? String : Number)(t); }
 function _toConsumableArray(arr) { return _arrayWithoutHoles(arr) || _iterableToArray(arr) || _unsupportedIterableToArray(arr) || _nonIterableSpread(); }
 function _nonIterableSpread() { throw new TypeError("Invalid attempt to spread non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method."); }
 function _iterableToArray(iter) { if (typeof Symbol !== "undefined" && iter[Symbol.iterator] != null || iter["@@iterator"] != null) return Array.from(iter); }
@@ -4085,7 +4391,7 @@ function _slicedToArray(arr, i) { return _arrayWithHoles(arr) || _iterableToArra
 function _nonIterableRest() { throw new TypeError("Invalid attempt to destructure non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method."); }
 function _unsupportedIterableToArray(o, minLen) { if (!o) return; if (typeof o === "string") return _arrayLikeToArray(o, minLen); var n = Object.prototype.toString.call(o).slice(8, -1); if (n === "Object" && o.constructor) n = o.constructor.name; if (n === "Map" || n === "Set") return Array.from(o); if (n === "Arguments" || /^(?:Ui|I)nt(?:8|16|32)(?:Clamped)?Array$/.test(n)) return _arrayLikeToArray(o, minLen); }
 function _arrayLikeToArray(arr, len) { if (len == null || len > arr.length) len = arr.length; for (var i = 0, arr2 = new Array(len); i < len; i++) arr2[i] = arr[i]; return arr2; }
-function _iterableToArrayLimit(arr, i) { var _i = null == arr ? null : "undefined" != typeof Symbol && arr[Symbol.iterator] || arr["@@iterator"]; if (null != _i) { var _s, _e, _x, _r, _arr = [], _n = !0, _d = !1; try { if (_x = (_i = _i.call(arr)).next, 0 === i) { if (Object(_i) !== _i) return; _n = !1; } else for (; !(_n = (_s = _x.call(_i)).done) && (_arr.push(_s.value), _arr.length !== i); _n = !0); } catch (err) { _d = !0, _e = err; } finally { try { if (!_n && null != _i["return"] && (_r = _i["return"](), Object(_r) !== _r)) return; } finally { if (_d) throw _e; } } return _arr; } }
+function _iterableToArrayLimit(r, l) { var t = null == r ? null : "undefined" != typeof Symbol && r[Symbol.iterator] || r["@@iterator"]; if (null != t) { var e, n, i, u, a = [], f = !0, o = !1; try { if (i = (t = t.call(r)).next, 0 === l) { if (Object(t) !== t) return; f = !1; } else for (; !(f = (e = i.call(t)).done) && (a.push(e.value), a.length !== l); f = !0); } catch (r) { o = !0, n = r; } finally { try { if (!f && null != t["return"] && (u = t["return"](), Object(u) !== u)) return; } finally { if (o) throw n; } } return a; } }
 function _arrayWithHoles(arr) { if (Array.isArray(arr)) return arr; }
 
 
@@ -4472,6 +4778,675 @@ var Calc2 = function Calc2(props) {
 
 /***/ }),
 
+/***/ "./source/components/Chart/chart.js":
+/*!******************************************!*\
+  !*** ./source/components/Chart/chart.js ***!
+  \******************************************/
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   Chart: () => (/* binding */ Chart)
+/* harmony export */ });
+/* harmony import */ var react__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! react */ "./node_modules/react/index.js");
+/* harmony import */ var react__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__webpack_require__.n(react__WEBPACK_IMPORTED_MODULE_0__);
+/* harmony import */ var _components_Chart_styles_chart_scss__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! @components/Chart/styles/chart.scss */ "./source/components/Chart/styles/chart.scss");
+/* harmony import */ var _components_Chart_sidebar_chart__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! @components/Chart/sidebar.chart */ "./source/components/Chart/sidebar.chart.js");
+/* harmony import */ var _components_Chart_request_emu__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(/*! @components/Chart/request.emu */ "./source/components/Chart/request.emu.js");
+function _typeof(o) { "@babel/helpers - typeof"; return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function (o) { return typeof o; } : function (o) { return o && "function" == typeof Symbol && o.constructor === Symbol && o !== Symbol.prototype ? "symbol" : typeof o; }, _typeof(o); }
+function _createForOfIteratorHelper(o, allowArrayLike) { var it = typeof Symbol !== "undefined" && o[Symbol.iterator] || o["@@iterator"]; if (!it) { if (Array.isArray(o) || (it = _unsupportedIterableToArray(o)) || allowArrayLike && o && typeof o.length === "number") { if (it) o = it; var i = 0; var F = function F() {}; return { s: F, n: function n() { if (i >= o.length) return { done: true }; return { done: false, value: o[i++] }; }, e: function e(_e) { throw _e; }, f: F }; } throw new TypeError("Invalid attempt to iterate non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method."); } var normalCompletion = true, didErr = false, err; return { s: function s() { it = it.call(o); }, n: function n() { var step = it.next(); normalCompletion = step.done; return step; }, e: function e(_e2) { didErr = true; err = _e2; }, f: function f() { try { if (!normalCompletion && it["return"] != null) it["return"](); } finally { if (didErr) throw err; } } }; }
+function _toConsumableArray(arr) { return _arrayWithoutHoles(arr) || _iterableToArray(arr) || _unsupportedIterableToArray(arr) || _nonIterableSpread(); }
+function _nonIterableSpread() { throw new TypeError("Invalid attempt to spread non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method."); }
+function _iterableToArray(iter) { if (typeof Symbol !== "undefined" && iter[Symbol.iterator] != null || iter["@@iterator"] != null) return Array.from(iter); }
+function _arrayWithoutHoles(arr) { if (Array.isArray(arr)) return _arrayLikeToArray(arr); }
+function ownKeys(e, r) { var t = Object.keys(e); if (Object.getOwnPropertySymbols) { var o = Object.getOwnPropertySymbols(e); r && (o = o.filter(function (r) { return Object.getOwnPropertyDescriptor(e, r).enumerable; })), t.push.apply(t, o); } return t; }
+function _objectSpread(e) { for (var r = 1; r < arguments.length; r++) { var t = null != arguments[r] ? arguments[r] : {}; r % 2 ? ownKeys(Object(t), !0).forEach(function (r) { _defineProperty(e, r, t[r]); }) : Object.getOwnPropertyDescriptors ? Object.defineProperties(e, Object.getOwnPropertyDescriptors(t)) : ownKeys(Object(t)).forEach(function (r) { Object.defineProperty(e, r, Object.getOwnPropertyDescriptor(t, r)); }); } return e; }
+function _defineProperty(obj, key, value) { key = _toPropertyKey(key); if (key in obj) { Object.defineProperty(obj, key, { value: value, enumerable: true, configurable: true, writable: true }); } else { obj[key] = value; } return obj; }
+function _toPropertyKey(t) { var i = _toPrimitive(t, "string"); return "symbol" == _typeof(i) ? i : String(i); }
+function _toPrimitive(t, r) { if ("object" != _typeof(t) || !t) return t; var e = t[Symbol.toPrimitive]; if (void 0 !== e) { var i = e.call(t, r || "default"); if ("object" != _typeof(i)) return i; throw new TypeError("@@toPrimitive must return a primitive value."); } return ("string" === r ? String : Number)(t); }
+function _slicedToArray(arr, i) { return _arrayWithHoles(arr) || _iterableToArrayLimit(arr, i) || _unsupportedIterableToArray(arr, i) || _nonIterableRest(); }
+function _nonIterableRest() { throw new TypeError("Invalid attempt to destructure non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method."); }
+function _unsupportedIterableToArray(o, minLen) { if (!o) return; if (typeof o === "string") return _arrayLikeToArray(o, minLen); var n = Object.prototype.toString.call(o).slice(8, -1); if (n === "Object" && o.constructor) n = o.constructor.name; if (n === "Map" || n === "Set") return Array.from(o); if (n === "Arguments" || /^(?:Ui|I)nt(?:8|16|32)(?:Clamped)?Array$/.test(n)) return _arrayLikeToArray(o, minLen); }
+function _arrayLikeToArray(arr, len) { if (len == null || len > arr.length) len = arr.length; for (var i = 0, arr2 = new Array(len); i < len; i++) arr2[i] = arr[i]; return arr2; }
+function _iterableToArrayLimit(r, l) { var t = null == r ? null : "undefined" != typeof Symbol && r[Symbol.iterator] || r["@@iterator"]; if (null != t) { var e, n, i, u, a = [], f = !0, o = !1; try { if (i = (t = t.call(r)).next, 0 === l) { if (Object(t) !== t) return; f = !1; } else for (; !(f = (e = i.call(t)).done) && (a.push(e.value), a.length !== l); f = !0); } catch (r) { o = !0, n = r; } finally { try { if (!f && null != t["return"] && (u = t["return"](), Object(u) !== u)) return; } finally { if (o) throw n; } } return a; } }
+function _arrayWithHoles(arr) { if (Array.isArray(arr)) return arr; }
+
+
+
+
+var ChartReducer = function ChartReducer(state, _ref, props) {
+  var _ref2 = _slicedToArray(_ref, 3),
+    type = _ref2[0],
+    data = _ref2[1],
+    data2 = _ref2[2];
+  if (type === "list") {
+    return _objectSpread(_objectSpread({}, state), {}, {
+      list: data,
+      search: _objectSpread(_objectSpread({}, state.search), {}, {
+        limit: data2
+      })
+    });
+  }
+  ;
+  if (type === "select") {
+    var list = _toConsumableArray(state.list);
+    var selectedData = state.list.find(function (item) {
+      return item.id === data.id;
+    }) || {};
+    console.log(selectedData, "select");
+    return _objectSpread(_objectSpread({}, state), {}, {
+      selected: {
+        id: data.id,
+        data: selectedData
+      },
+      list: list
+    });
+  }
+  ;
+  if (type === "search") {
+    return _objectSpread(_objectSpread({}, state), {}, {
+      search: {
+        query: data,
+        sort: state.search.sort,
+        sortKey: state.search.sortKey,
+        page: "1",
+        limit: state.search.limit
+      },
+      pickSort: data
+    });
+  }
+  ;
+  if (type === "page") {
+    console.log(state.search.page, "page");
+    return _objectSpread(_objectSpread({}, state), {}, {
+      search: _objectSpread(_objectSpread({}, state.search), {}, {
+        page: data
+      }),
+      select: data.index
+    });
+  }
+  ;
+  if (type === "sort") {
+    console.log(data, "pickSort");
+    return _objectSpread(_objectSpread({}, state), {}, {
+      search: {
+        query: state.search.query,
+        sort: state.search.sort === "desc" ? "asc" : "desc",
+        sortKey: state.search.sortKey,
+        page: "1",
+        limit: state.search.limit
+      },
+      pickSort: data
+    });
+  }
+  ;
+  if (type === "remove") {
+    var _list = _toConsumableArray(state.list);
+    _list = _list.filter(function (item) {
+      return item.id !== data.id;
+    });
+    return _objectSpread(_objectSpread({}, state), {}, {
+      list: _list
+    });
+  }
+  ;
+  return state;
+};
+var Chart = function Chart() {
+  var _useReducer = (0,react__WEBPACK_IMPORTED_MODULE_0__.useReducer)(ChartReducer, {
+      search: {
+        query: "",
+        sort: "desc",
+        sortKey: "tokens",
+        page: 1,
+        limit: 1,
+        index: ""
+      },
+      list: [],
+      tableHeader: [{
+        title: "Пользователь",
+        icon: "/assets/images/find-user.svg",
+        key: "Пользователь"
+      }, {
+        title: "Email",
+        icon: "/assets/images/mail.svg",
+        key: "Email"
+      }, {
+        title: "Роль",
+        icon: "/assets/images/user-1.svg",
+        key: "Роль"
+      }, {
+        title: "Подписка",
+        icon: "/assets/images/dollar.svg",
+        key: "Подписка",
+        sub: true
+      }, {
+        title: "Токены",
+        icon: "",
+        key: "Токены",
+        sort: true
+      }, {
+        title: "Действия",
+        icon: "/assets/images/actions.svg",
+        key: "Действия"
+      }],
+      selected: {
+        id: "",
+        data: {}
+      },
+      select: "",
+      pickSort: false
+    }),
+    _useReducer2 = _slicedToArray(_useReducer, 2),
+    state = _useReducer2[0],
+    dispatch = _useReducer2[1];
+  var getList = function getList(query, sortKey, sort, page) {
+    _components_Chart_request_emu__WEBPACK_IMPORTED_MODULE_3__.RequestEmu.list(query, sortKey, sort, page, function (response) {
+      if (!response.data) return;
+      var listing = [];
+      console.log(response.data);
+      var _iterator = _createForOfIteratorHelper(response.data),
+        _step;
+      try {
+        for (_iterator.s(); !(_step = _iterator.n()).done;) {
+          var line = _step.value;
+          listing.push({
+            email: line.email,
+            name: line.name,
+            role: line.role,
+            id: line.id,
+            key: line.id,
+            subscription: line.subscription,
+            tokens: line.tokens
+          });
+        }
+      } catch (err) {
+        _iterator.e(err);
+      } finally {
+        _iterator.f();
+      }
+      dispatch(["list", listing, parseInt(response.pages) || 1]);
+    });
+  };
+  (0,react__WEBPACK_IMPORTED_MODULE_0__.useEffect)(function () {
+    getList(state.search.query, state.search.sortKey, state.search.sort, state.search.page);
+  }, [state.search.query, state.search.sortKey, state.search.sort, state.search.page]);
+  var getPages = (0,react__WEBPACK_IMPORTED_MODULE_0__.useMemo)(function () {
+    var list = [];
+    var _loop = function _loop(index) {
+      list.push( /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("span", {
+        className: "pages-wrap-item " + (state.search.page === index + 1 ? "pages-select" : ""),
+        key: index,
+        onClick: function onClick() {
+          dispatch(["page", index + 1]);
+        }
+      }, index + 1));
+    };
+    for (var index = 0; index < state.search.limit; index++) {
+      _loop(index);
+    }
+    ;
+    return list;
+  }, [state.search]);
+  return /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("article", {
+    className: "content"
+  }, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("section", {
+    className: "content-title"
+  }, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("div", {
+    className: "content-title-text"
+  }, "\u041F\u043E\u0438\u0441\u043A \u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u0435\u043B\u044F"), /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("div", {
+    className: "input"
+  }, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("p", {
+    className: "input-icon"
+  }), /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("input", {
+    className: "input-folder",
+    placeholder: "Поиск",
+    onChange: function onChange(e) {
+      dispatch(["search", e.target.value]);
+    }
+  }))), /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("section", {
+    className: "table"
+  }, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("div", {
+    className: "table-header"
+  }, state.tableHeader.map(function (item) {
+    return /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("p", {
+      className: "table-item",
+      key: item.key
+    }, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("span", {
+      className: "table-item-text"
+    }, item.title), /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("span", {
+      className: "table-item-icon " + (item.sort ? "hidden" : "") + (item.sub ? "sub-size" : ""),
+      style: {
+        backgroundImage: "url(" + item.icon + ")"
+      }
+    }, ""), item.sort ? /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("span", {
+      className: "table-item-arrow " + (!state.pickSort ? "" : " desc-sort"),
+      onClick: function onClick() {
+        return dispatch(["sort", !state.pickSort]);
+      }
+    }, item.arrow) : null);
+  })), /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("div", {
+    className: "table-list"
+  }, state.list.map(function (item, index) {
+    return /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("div", {
+      key: item.key,
+      className: "table-list-row"
+    }, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("div", {
+      className: "table-list-items"
+    }, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("div", {
+      className: "table-list-items-text"
+    }, item.name), /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("div", {
+      className: "table-list-items-text"
+    }, item.email), /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("div", {
+      className: "table-list-items-text"
+    }, item.role), /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("div", {
+      className: "table-list-items-text"
+    }, item.subscription), /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("div", {
+      className: "table-list-items-text"
+    }, item.tokens)), /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("p", {
+      className: "table-list-btns"
+    }, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("span", {
+      className: "table-list-btns-edit",
+      onClick: function onClick() {
+        dispatch(["select", {
+          id: item.id
+        }]);
+      }
+    }), /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("span", {
+      className: "table-list-btns-trash",
+      onClick: function onClick() {
+        dispatch(["remove", {
+          id: item.id
+        }]);
+      }
+    })));
+  }))), /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("div", {
+    className: "pages"
+  }, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("p", {
+    className: "pages-wrap"
+  }, getPages)), /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement(_components_Chart_sidebar_chart__WEBPACK_IMPORTED_MODULE_2__.SidebarChart, {
+    id: state.selected.id,
+    data: state.selected.data,
+    mail: state.selected.data.email
+  }));
+};
+
+/***/ }),
+
+/***/ "./source/components/Chart/graph.js":
+/*!******************************************!*\
+  !*** ./source/components/Chart/graph.js ***!
+  \******************************************/
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   Graph: () => (/* binding */ Graph),
+/* harmony export */   getDate: () => (/* binding */ getDate)
+/* harmony export */ });
+/* harmony import */ var react__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! react */ "./node_modules/react/index.js");
+/* harmony import */ var react__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__webpack_require__.n(react__WEBPACK_IMPORTED_MODULE_0__);
+/* harmony import */ var react_dom__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! react-dom */ "./node_modules/react-dom/index.js");
+/* harmony import */ var _components_Chart_request_emu__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! @components/Chart/request.emu */ "./source/components/Chart/request.emu.js");
+/* harmony import */ var _components_canvas__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(/*! @components/canvas */ "./source/components/canvas.js");
+function _typeof(o) { "@babel/helpers - typeof"; return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function (o) { return typeof o; } : function (o) { return o && "function" == typeof Symbol && o.constructor === Symbol && o !== Symbol.prototype ? "symbol" : typeof o; }, _typeof(o); }
+function _createForOfIteratorHelper(o, allowArrayLike) { var it = typeof Symbol !== "undefined" && o[Symbol.iterator] || o["@@iterator"]; if (!it) { if (Array.isArray(o) || (it = _unsupportedIterableToArray(o)) || allowArrayLike && o && typeof o.length === "number") { if (it) o = it; var i = 0; var F = function F() {}; return { s: F, n: function n() { if (i >= o.length) return { done: true }; return { done: false, value: o[i++] }; }, e: function e(_e) { throw _e; }, f: F }; } throw new TypeError("Invalid attempt to iterate non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method."); } var normalCompletion = true, didErr = false, err; return { s: function s() { it = it.call(o); }, n: function n() { var step = it.next(); normalCompletion = step.done; return step; }, e: function e(_e2) { didErr = true; err = _e2; }, f: function f() { try { if (!normalCompletion && it["return"] != null) it["return"](); } finally { if (didErr) throw err; } } }; }
+function ownKeys(e, r) { var t = Object.keys(e); if (Object.getOwnPropertySymbols) { var o = Object.getOwnPropertySymbols(e); r && (o = o.filter(function (r) { return Object.getOwnPropertyDescriptor(e, r).enumerable; })), t.push.apply(t, o); } return t; }
+function _objectSpread(e) { for (var r = 1; r < arguments.length; r++) { var t = null != arguments[r] ? arguments[r] : {}; r % 2 ? ownKeys(Object(t), !0).forEach(function (r) { _defineProperty(e, r, t[r]); }) : Object.getOwnPropertyDescriptors ? Object.defineProperties(e, Object.getOwnPropertyDescriptors(t)) : ownKeys(Object(t)).forEach(function (r) { Object.defineProperty(e, r, Object.getOwnPropertyDescriptor(t, r)); }); } return e; }
+function _defineProperty(obj, key, value) { key = _toPropertyKey(key); if (key in obj) { Object.defineProperty(obj, key, { value: value, enumerable: true, configurable: true, writable: true }); } else { obj[key] = value; } return obj; }
+function _toPropertyKey(t) { var i = _toPrimitive(t, "string"); return "symbol" == _typeof(i) ? i : String(i); }
+function _toPrimitive(t, r) { if ("object" != _typeof(t) || !t) return t; var e = t[Symbol.toPrimitive]; if (void 0 !== e) { var i = e.call(t, r || "default"); if ("object" != _typeof(i)) return i; throw new TypeError("@@toPrimitive must return a primitive value."); } return ("string" === r ? String : Number)(t); }
+function _slicedToArray(arr, i) { return _arrayWithHoles(arr) || _iterableToArrayLimit(arr, i) || _unsupportedIterableToArray(arr, i) || _nonIterableRest(); }
+function _nonIterableRest() { throw new TypeError("Invalid attempt to destructure non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method."); }
+function _unsupportedIterableToArray(o, minLen) { if (!o) return; if (typeof o === "string") return _arrayLikeToArray(o, minLen); var n = Object.prototype.toString.call(o).slice(8, -1); if (n === "Object" && o.constructor) n = o.constructor.name; if (n === "Map" || n === "Set") return Array.from(o); if (n === "Arguments" || /^(?:Ui|I)nt(?:8|16|32)(?:Clamped)?Array$/.test(n)) return _arrayLikeToArray(o, minLen); }
+function _arrayLikeToArray(arr, len) { if (len == null || len > arr.length) len = arr.length; for (var i = 0, arr2 = new Array(len); i < len; i++) arr2[i] = arr[i]; return arr2; }
+function _iterableToArrayLimit(r, l) { var t = null == r ? null : "undefined" != typeof Symbol && r[Symbol.iterator] || r["@@iterator"]; if (null != t) { var e, n, i, u, a = [], f = !0, o = !1; try { if (i = (t = t.call(r)).next, 0 === l) { if (Object(t) !== t) return; f = !1; } else for (; !(f = (e = i.call(t)).done) && (a.push(e.value), a.length !== l); f = !0); } catch (r) { o = !0, n = r; } finally { try { if (!f && null != t["return"] && (u = t["return"](), Object(u) !== u)) return; } finally { if (o) throw n; } } return a; } }
+function _arrayWithHoles(arr) { if (Array.isArray(arr)) return arr; }
+
+
+
+
+var GraphReducer = function GraphReducer(state, _ref, props) {
+  var _ref2 = _slicedToArray(_ref, 2),
+    type = _ref2[0],
+    data = _ref2[1];
+  if (type === "expenses") {
+    return _objectSpread(_objectSpread({}, state), {}, {
+      expenses: data
+    });
+  }
+  ;
+  return state;
+};
+var getDate = function getDate(dateTokens) {
+  return new Date(dateTokens).toLocaleString();
+};
+var Graph = function Graph(props) {
+  var _useReducer = (0,react__WEBPACK_IMPORTED_MODULE_0__.useReducer)(GraphReducer, {
+      expenses: []
+    }),
+    _useReducer2 = _slicedToArray(_useReducer, 2),
+    state = _useReducer2[0],
+    dispatch = _useReducer2[1];
+  var GetTransactions = function GetTransactions(id) {
+    _components_Chart_request_emu__WEBPACK_IMPORTED_MODULE_2__.RequestEmu.transactions(id, function (response) {
+      if (!id) return;
+      var expenses = [];
+      var _iterator = _createForOfIteratorHelper(response),
+        _step;
+      try {
+        for (_iterator.s(); !(_step = _iterator.n()).done;) {
+          var line = _step.value;
+          expenses.push({
+            amount: line.amount,
+            date: getDate(line.created_at),
+            id: line.id,
+            key: line.id
+          });
+        }
+      } catch (err) {
+        _iterator.e(err);
+      } finally {
+        _iterator.f();
+      }
+      dispatch(["expenses", expenses]);
+    });
+  };
+  (0,react__WEBPACK_IMPORTED_MODULE_0__.useEffect)(function () {
+    GetTransactions(props.id);
+  }, [props.id]);
+  return /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement(_components_canvas__WEBPACK_IMPORTED_MODULE_3__.GraphCanvas, {
+    width: "404",
+    height: "324",
+    array: state.expenses
+  });
+};
+
+/***/ }),
+
+/***/ "./source/components/Chart/request.emu.js":
+/*!************************************************!*\
+  !*** ./source/components/Chart/request.emu.js ***!
+  \************************************************/
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   RequestEmu: () => (/* binding */ RequestEmu)
+/* harmony export */ });
+function _toConsumableArray(arr) { return _arrayWithoutHoles(arr) || _iterableToArray(arr) || _unsupportedIterableToArray(arr) || _nonIterableSpread(); }
+function _nonIterableSpread() { throw new TypeError("Invalid attempt to spread non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method."); }
+function _iterableToArray(iter) { if (typeof Symbol !== "undefined" && iter[Symbol.iterator] != null || iter["@@iterator"] != null) return Array.from(iter); }
+function _arrayWithoutHoles(arr) { if (Array.isArray(arr)) return _arrayLikeToArray(arr); }
+function _createForOfIteratorHelper(o, allowArrayLike) { var it = typeof Symbol !== "undefined" && o[Symbol.iterator] || o["@@iterator"]; if (!it) { if (Array.isArray(o) || (it = _unsupportedIterableToArray(o)) || allowArrayLike && o && typeof o.length === "number") { if (it) o = it; var i = 0; var F = function F() {}; return { s: F, n: function n() { if (i >= o.length) return { done: true }; return { done: false, value: o[i++] }; }, e: function e(_e) { throw _e; }, f: F }; } throw new TypeError("Invalid attempt to iterate non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method."); } var normalCompletion = true, didErr = false, err; return { s: function s() { it = it.call(o); }, n: function n() { var step = it.next(); normalCompletion = step.done; return step; }, e: function e(_e2) { didErr = true; err = _e2; }, f: function f() { try { if (!normalCompletion && it["return"] != null) it["return"](); } finally { if (didErr) throw err; } } }; }
+function _unsupportedIterableToArray(o, minLen) { if (!o) return; if (typeof o === "string") return _arrayLikeToArray(o, minLen); var n = Object.prototype.toString.call(o).slice(8, -1); if (n === "Object" && o.constructor) n = o.constructor.name; if (n === "Map" || n === "Set") return Array.from(o); if (n === "Arguments" || /^(?:Ui|I)nt(?:8|16|32)(?:Clamped)?Array$/.test(n)) return _arrayLikeToArray(o, minLen); }
+function _arrayLikeToArray(arr, len) { if (len == null || len > arr.length) len = arr.length; for (var i = 0, arr2 = new Array(len); i < len; i++) arr2[i] = arr[i]; return arr2; }
+var RequestEmu = {
+  transactions: function transactions(id, callback) {
+    fetch("../assets/requests/transactions.json").then(function (response) {
+      return response.json();
+    }).then(function (response) {
+      callback(response);
+    });
+  },
+  list: function list(query, sortKey, sort, page, callback) {
+    fetch("../assets/requests/list.json").then(function (response) {
+      return response.json();
+    }).then(function (response) {
+      var filtered = [];
+      var sorted = [];
+      if (query) {
+        var _iterator = _createForOfIteratorHelper(response),
+          _step;
+        try {
+          for (_iterator.s(); !(_step = _iterator.n()).done;) {
+            var item = _step.value;
+            if ((item.name || "").indexOf(query) < 0 && (item.email || "").indexOf(query) < 0) continue;
+            filtered.push(item);
+          }
+        } catch (err) {
+          _iterator.e(err);
+        } finally {
+          _iterator.f();
+        }
+        ;
+      } else {
+        filtered = _toConsumableArray(response);
+      }
+      ;
+      if (sortKey) {
+        if (sort === "asc") sorted = filtered.sort(function (a, b) {
+          return a[sortKey] - b[sortKey];
+        });else sorted = filtered.sort(function (a, b) {
+          return b[sortKey] - a[sortKey];
+        });
+      } else {
+        sorted = _toConsumableArray(filtered);
+      }
+      ;
+      var list = [];
+      var perPage = 20;
+      page = parseInt(page) || 1;
+      var offset = (page - 1) * perPage;
+      var limit = page * perPage;
+      var pages = Math.ceil(response.length / perPage) || 1;
+      for (; offset < limit; offset++) {
+        if (offset > sorted.length - 1) break;
+        list.push(sorted[offset]);
+      }
+      ;
+      callback({
+        data: list,
+        pages: pages
+      });
+    });
+  }
+};
+
+/***/ }),
+
+/***/ "./source/components/Chart/sidebar.chart.js":
+/*!**************************************************!*\
+  !*** ./source/components/Chart/sidebar.chart.js ***!
+  \**************************************************/
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   SidebarChart: () => (/* binding */ SidebarChart)
+/* harmony export */ });
+/* harmony import */ var react__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! react */ "./node_modules/react/index.js");
+/* harmony import */ var react__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__webpack_require__.n(react__WEBPACK_IMPORTED_MODULE_0__);
+/* harmony import */ var _components_Chart_styles_sidebar_chart_scss__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! @components/Chart/styles/sidebar.chart.scss */ "./source/components/Chart/styles/sidebar.chart.scss");
+/* harmony import */ var _components_Chart_graph__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! @components/Chart/graph */ "./source/components/Chart/graph.js");
+/* harmony import */ var _components_Chart_request_emu__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(/*! @components/Chart/request.emu */ "./source/components/Chart/request.emu.js");
+function _typeof(o) { "@babel/helpers - typeof"; return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function (o) { return typeof o; } : function (o) { return o && "function" == typeof Symbol && o.constructor === Symbol && o !== Symbol.prototype ? "symbol" : typeof o; }, _typeof(o); }
+function _createForOfIteratorHelper(o, allowArrayLike) { var it = typeof Symbol !== "undefined" && o[Symbol.iterator] || o["@@iterator"]; if (!it) { if (Array.isArray(o) || (it = _unsupportedIterableToArray(o)) || allowArrayLike && o && typeof o.length === "number") { if (it) o = it; var i = 0; var F = function F() {}; return { s: F, n: function n() { if (i >= o.length) return { done: true }; return { done: false, value: o[i++] }; }, e: function e(_e) { throw _e; }, f: F }; } throw new TypeError("Invalid attempt to iterate non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method."); } var normalCompletion = true, didErr = false, err; return { s: function s() { it = it.call(o); }, n: function n() { var step = it.next(); normalCompletion = step.done; return step; }, e: function e(_e2) { didErr = true; err = _e2; }, f: function f() { try { if (!normalCompletion && it["return"] != null) it["return"](); } finally { if (didErr) throw err; } } }; }
+function ownKeys(e, r) { var t = Object.keys(e); if (Object.getOwnPropertySymbols) { var o = Object.getOwnPropertySymbols(e); r && (o = o.filter(function (r) { return Object.getOwnPropertyDescriptor(e, r).enumerable; })), t.push.apply(t, o); } return t; }
+function _objectSpread(e) { for (var r = 1; r < arguments.length; r++) { var t = null != arguments[r] ? arguments[r] : {}; r % 2 ? ownKeys(Object(t), !0).forEach(function (r) { _defineProperty(e, r, t[r]); }) : Object.getOwnPropertyDescriptors ? Object.defineProperties(e, Object.getOwnPropertyDescriptors(t)) : ownKeys(Object(t)).forEach(function (r) { Object.defineProperty(e, r, Object.getOwnPropertyDescriptor(t, r)); }); } return e; }
+function _defineProperty(obj, key, value) { key = _toPropertyKey(key); if (key in obj) { Object.defineProperty(obj, key, { value: value, enumerable: true, configurable: true, writable: true }); } else { obj[key] = value; } return obj; }
+function _toPropertyKey(t) { var i = _toPrimitive(t, "string"); return "symbol" == _typeof(i) ? i : String(i); }
+function _toPrimitive(t, r) { if ("object" != _typeof(t) || !t) return t; var e = t[Symbol.toPrimitive]; if (void 0 !== e) { var i = e.call(t, r || "default"); if ("object" != _typeof(i)) return i; throw new TypeError("@@toPrimitive must return a primitive value."); } return ("string" === r ? String : Number)(t); }
+function _slicedToArray(arr, i) { return _arrayWithHoles(arr) || _iterableToArrayLimit(arr, i) || _unsupportedIterableToArray(arr, i) || _nonIterableRest(); }
+function _nonIterableRest() { throw new TypeError("Invalid attempt to destructure non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method."); }
+function _unsupportedIterableToArray(o, minLen) { if (!o) return; if (typeof o === "string") return _arrayLikeToArray(o, minLen); var n = Object.prototype.toString.call(o).slice(8, -1); if (n === "Object" && o.constructor) n = o.constructor.name; if (n === "Map" || n === "Set") return Array.from(o); if (n === "Arguments" || /^(?:Ui|I)nt(?:8|16|32)(?:Clamped)?Array$/.test(n)) return _arrayLikeToArray(o, minLen); }
+function _arrayLikeToArray(arr, len) { if (len == null || len > arr.length) len = arr.length; for (var i = 0, arr2 = new Array(len); i < len; i++) arr2[i] = arr[i]; return arr2; }
+function _iterableToArrayLimit(r, l) { var t = null == r ? null : "undefined" != typeof Symbol && r[Symbol.iterator] || r["@@iterator"]; if (null != t) { var e, n, i, u, a = [], f = !0, o = !1; try { if (i = (t = t.call(r)).next, 0 === l) { if (Object(t) !== t) return; f = !1; } else for (; !(f = (e = i.call(t)).done) && (a.push(e.value), a.length !== l); f = !0); } catch (r) { o = !0, n = r; } finally { try { if (!f && null != t["return"] && (u = t["return"](), Object(u) !== u)) return; } finally { if (o) throw n; } } return a; } }
+function _arrayWithHoles(arr) { if (Array.isArray(arr)) return arr; }
+
+
+
+
+var OperationType = {
+  "REPLENISH": "Пополнение",
+  "WRITE_OFF": "Списание"
+};
+var OperationTypeStyle = {
+  "REPLENISH": "operation-replenish",
+  "WRITE_OFF": "operation-writeOff"
+};
+var OperationAmountStyle = {
+  "REPLENISH": "+",
+  "WRITE_OFF": "-"
+};
+var OperationAmountSign = {
+  "REPLENISH": "replenish-amount",
+  "WRITE_OFF": "writeOff-amount"
+};
+var SidebarChartReducer = function SidebarChartReducer(state, _ref, props) {
+  var _ref2 = _slicedToArray(_ref, 2),
+    type = _ref2[0],
+    data = _ref2[1];
+  if (type === "transactions") {
+    return _objectSpread(_objectSpread({}, state), {}, {
+      transactions: data
+    });
+  }
+  ;
+  if (type === "visible") {
+    return _objectSpread(_objectSpread({}, state), {}, {
+      visible: data
+    });
+  }
+  ;
+  return state;
+};
+var SidebarChart = function SidebarChart(props) {
+  var _useReducer = (0,react__WEBPACK_IMPORTED_MODULE_0__.useReducer)(SidebarChartReducer, {
+      transactions: [],
+      visible: false,
+      header: [{
+        title: "Тип",
+        key: "Тип"
+      }, {
+        title: "Сумма",
+        key: "Сумма"
+      }, {
+        title: "Дата",
+        key: "Дата"
+      }]
+    }),
+    _useReducer2 = _slicedToArray(_useReducer, 2),
+    state = _useReducer2[0],
+    dispatch = _useReducer2[1];
+  var getDate = function getDate(dateTokens) {
+    var months = ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12"];
+    var date = new Date(dateTokens);
+    var day = date.getDate();
+    var month = months[date.getMonth()];
+    var year = date.getFullYear();
+    var parsedDateObj = day + "-" + month + "-" + year;
+    return parsedDateObj;
+  };
+  var getTime = function getTime(dateTokens) {
+    var time = new Date(dateTokens);
+    var hours = time.getHours();
+    var minutes = time.getMinutes();
+    var sec = time.getSeconds();
+    var parseTime = hours + ":" + minutes + ":" + sec;
+    return parseTime;
+  };
+  var getTransactions = function getTransactions(id) {
+    if (!id) return;
+    _components_Chart_request_emu__WEBPACK_IMPORTED_MODULE_3__.RequestEmu.transactions(id, function (response) {
+      if (!response) return;
+      var transactions = [];
+      var _iterator = _createForOfIteratorHelper(response),
+        _step;
+      try {
+        for (_iterator.s(); !(_step = _iterator.n()).done;) {
+          var line = _step.value;
+          transactions.push({
+            type: line.type,
+            amount: line.amount,
+            date: getDate(line.created_at),
+            time: getTime(line.created_at),
+            id: line.id,
+            key: line.id
+          });
+        }
+      } catch (err) {
+        _iterator.e(err);
+      } finally {
+        _iterator.f();
+      }
+      dispatch(["transactions", transactions]);
+    });
+  };
+  (0,react__WEBPACK_IMPORTED_MODULE_0__.useEffect)(function () {
+    getTransactions(props.id);
+  }, [props.id]);
+  (0,react__WEBPACK_IMPORTED_MODULE_0__.useEffect)(function () {
+    dispatch(["visible", false]);
+  }, [props.id]);
+  return /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("section", {
+    className: "sidebar-backdrop " + (props.id && !state.visible ? " block" : "hidden")
+  }, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("section", {
+    className: "sidebar  "
+  }, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("p", {
+    className: "props.id"
+  }), /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("p", {
+    className: "chart-title"
+  }, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("span", {
+    className: "chart-title-text"
+  }, "\u0418\u0441\u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u043D\u0438\u0435 \u0442\u043E\u043A\u0435\u043D\u043E\u0432"), /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("span", {
+    className: "chart-title-close ",
+    onClick: function onClick() {
+      dispatch(["visible", !state.visible]);
+    }
+  })), /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("div", {
+    className: "chart"
+  }, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("div", {
+    className: "chart-d"
+  }, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("div", {
+    className: "chart-d-schedule"
+  }, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement(_components_Chart_graph__WEBPACK_IMPORTED_MODULE_2__.Graph, {
+    id: props.id
+  })), /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("p", {
+    className: "chart-d-mail"
+  }, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("span", {
+    className: "chart-d-mail-i"
+  }), /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("span", {
+    className: "chart-d-mail-title"
+  }, props.mail)))), /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("section", {
+    className: "tokens"
+  }, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("p", {
+    className: "tokens-title"
+  }, "\u0418\u0441\u0442\u043E\u0440\u0438\u044F \u043E\u043F\u0435\u0440\u0430\u0446\u0438\u0439"), /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("div", {
+    className: "tokens-header"
+  }, state.header.map(function (item) {
+    return /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("p", {
+      className: "tokens-header-item",
+      key: item.key
+    }, item.title);
+  })), /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("div", {
+    className: "tokens-wrap"
+  }, state.transactions.map(function (item) {
+    return /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("div", {
+      className: "tokens-block ",
+      key: item.key
+    }, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("p", {
+      className: "tokens-block-type"
+    }, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("span", {
+      className: "tokens-block-type-i" + " " + OperationTypeStyle[item.type]
+    }), /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("span", {
+      className: "tokens-block-type-text"
+    }, OperationType[item.type] || "")), /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("p", {
+      className: "tokens-block-item"
+    }, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("span", {
+      className: OperationAmountSign[item.type]
+    }, OperationAmountStyle[item.type] + " "), /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("span", null, " ", item.amount, " ")), /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("p", {
+      className: "tokens-date"
+    }, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("span", {
+      className: "tokens-date-item"
+    }, item.date), /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("span", {
+      className: "tokens-date-item"
+    }, item.time)));
+  })))));
+};
+
+/***/ }),
+
 /***/ "./source/components/Data-Table/button.js":
 /*!************************************************!*\
   !*** ./source/components/Data-Table/button.js ***!
@@ -4511,22 +5486,22 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony import */ var _components_Data_Table_styles_media_scss__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! @components/Data-Table/styles/media.scss */ "./source/components/Data-Table/styles/media.scss");
 /* harmony import */ var _components_Data_Table_button__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(/*! @components/Data-Table/button */ "./source/components/Data-Table/button.js");
 /* harmony import */ var _components_Gallery_gallery__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(/*! @components/Gallery/gallery */ "./source/components/Gallery/gallery.js");
-function _typeof(obj) { "@babel/helpers - typeof"; return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function (obj) { return typeof obj; } : function (obj) { return obj && "function" == typeof Symbol && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; }, _typeof(obj); }
+function _typeof(o) { "@babel/helpers - typeof"; return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function (o) { return typeof o; } : function (o) { return o && "function" == typeof Symbol && o.constructor === Symbol && o !== Symbol.prototype ? "symbol" : typeof o; }, _typeof(o); }
 function _toConsumableArray(arr) { return _arrayWithoutHoles(arr) || _iterableToArray(arr) || _unsupportedIterableToArray(arr) || _nonIterableSpread(); }
 function _nonIterableSpread() { throw new TypeError("Invalid attempt to spread non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method."); }
 function _iterableToArray(iter) { if (typeof Symbol !== "undefined" && iter[Symbol.iterator] != null || iter["@@iterator"] != null) return Array.from(iter); }
 function _arrayWithoutHoles(arr) { if (Array.isArray(arr)) return _arrayLikeToArray(arr); }
-function ownKeys(object, enumerableOnly) { var keys = Object.keys(object); if (Object.getOwnPropertySymbols) { var symbols = Object.getOwnPropertySymbols(object); enumerableOnly && (symbols = symbols.filter(function (sym) { return Object.getOwnPropertyDescriptor(object, sym).enumerable; })), keys.push.apply(keys, symbols); } return keys; }
-function _objectSpread(target) { for (var i = 1; i < arguments.length; i++) { var source = null != arguments[i] ? arguments[i] : {}; i % 2 ? ownKeys(Object(source), !0).forEach(function (key) { _defineProperty(target, key, source[key]); }) : Object.getOwnPropertyDescriptors ? Object.defineProperties(target, Object.getOwnPropertyDescriptors(source)) : ownKeys(Object(source)).forEach(function (key) { Object.defineProperty(target, key, Object.getOwnPropertyDescriptor(source, key)); }); } return target; }
+function ownKeys(e, r) { var t = Object.keys(e); if (Object.getOwnPropertySymbols) { var o = Object.getOwnPropertySymbols(e); r && (o = o.filter(function (r) { return Object.getOwnPropertyDescriptor(e, r).enumerable; })), t.push.apply(t, o); } return t; }
+function _objectSpread(e) { for (var r = 1; r < arguments.length; r++) { var t = null != arguments[r] ? arguments[r] : {}; r % 2 ? ownKeys(Object(t), !0).forEach(function (r) { _defineProperty(e, r, t[r]); }) : Object.getOwnPropertyDescriptors ? Object.defineProperties(e, Object.getOwnPropertyDescriptors(t)) : ownKeys(Object(t)).forEach(function (r) { Object.defineProperty(e, r, Object.getOwnPropertyDescriptor(t, r)); }); } return e; }
 function _defineProperty(obj, key, value) { key = _toPropertyKey(key); if (key in obj) { Object.defineProperty(obj, key, { value: value, enumerable: true, configurable: true, writable: true }); } else { obj[key] = value; } return obj; }
-function _toPropertyKey(arg) { var key = _toPrimitive(arg, "string"); return _typeof(key) === "symbol" ? key : String(key); }
-function _toPrimitive(input, hint) { if (_typeof(input) !== "object" || input === null) return input; var prim = input[Symbol.toPrimitive]; if (prim !== undefined) { var res = prim.call(input, hint || "default"); if (_typeof(res) !== "object") return res; throw new TypeError("@@toPrimitive must return a primitive value."); } return (hint === "string" ? String : Number)(input); }
-function _createForOfIteratorHelper(o, allowArrayLike) { var it = typeof Symbol !== "undefined" && o[Symbol.iterator] || o["@@iterator"]; if (!it) { if (Array.isArray(o) || (it = _unsupportedIterableToArray(o)) || allowArrayLike && o && typeof o.length === "number") { if (it) o = it; var i = 0; var F = function F() {}; return { s: F, n: function n() { if (i >= o.length) return { done: true }; return { done: false, value: o[i++] }; }, e: function e(_e2) { throw _e2; }, f: F }; } throw new TypeError("Invalid attempt to iterate non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method."); } var normalCompletion = true, didErr = false, err; return { s: function s() { it = it.call(o); }, n: function n() { var step = it.next(); normalCompletion = step.done; return step; }, e: function e(_e3) { didErr = true; err = _e3; }, f: function f() { try { if (!normalCompletion && it["return"] != null) it["return"](); } finally { if (didErr) throw err; } } }; }
+function _toPropertyKey(t) { var i = _toPrimitive(t, "string"); return "symbol" == _typeof(i) ? i : String(i); }
+function _toPrimitive(t, r) { if ("object" != _typeof(t) || !t) return t; var e = t[Symbol.toPrimitive]; if (void 0 !== e) { var i = e.call(t, r || "default"); if ("object" != _typeof(i)) return i; throw new TypeError("@@toPrimitive must return a primitive value."); } return ("string" === r ? String : Number)(t); }
+function _createForOfIteratorHelper(o, allowArrayLike) { var it = typeof Symbol !== "undefined" && o[Symbol.iterator] || o["@@iterator"]; if (!it) { if (Array.isArray(o) || (it = _unsupportedIterableToArray(o)) || allowArrayLike && o && typeof o.length === "number") { if (it) o = it; var i = 0; var F = function F() {}; return { s: F, n: function n() { if (i >= o.length) return { done: true }; return { done: false, value: o[i++] }; }, e: function e(_e) { throw _e; }, f: F }; } throw new TypeError("Invalid attempt to iterate non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method."); } var normalCompletion = true, didErr = false, err; return { s: function s() { it = it.call(o); }, n: function n() { var step = it.next(); normalCompletion = step.done; return step; }, e: function e(_e2) { didErr = true; err = _e2; }, f: function f() { try { if (!normalCompletion && it["return"] != null) it["return"](); } finally { if (didErr) throw err; } } }; }
 function _slicedToArray(arr, i) { return _arrayWithHoles(arr) || _iterableToArrayLimit(arr, i) || _unsupportedIterableToArray(arr, i) || _nonIterableRest(); }
 function _nonIterableRest() { throw new TypeError("Invalid attempt to destructure non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method."); }
 function _unsupportedIterableToArray(o, minLen) { if (!o) return; if (typeof o === "string") return _arrayLikeToArray(o, minLen); var n = Object.prototype.toString.call(o).slice(8, -1); if (n === "Object" && o.constructor) n = o.constructor.name; if (n === "Map" || n === "Set") return Array.from(o); if (n === "Arguments" || /^(?:Ui|I)nt(?:8|16|32)(?:Clamped)?Array$/.test(n)) return _arrayLikeToArray(o, minLen); }
 function _arrayLikeToArray(arr, len) { if (len == null || len > arr.length) len = arr.length; for (var i = 0, arr2 = new Array(len); i < len; i++) arr2[i] = arr[i]; return arr2; }
-function _iterableToArrayLimit(arr, i) { var _i = null == arr ? null : "undefined" != typeof Symbol && arr[Symbol.iterator] || arr["@@iterator"]; if (null != _i) { var _s, _e, _x, _r, _arr = [], _n = !0, _d = !1; try { if (_x = (_i = _i.call(arr)).next, 0 === i) { if (Object(_i) !== _i) return; _n = !1; } else for (; !(_n = (_s = _x.call(_i)).done) && (_arr.push(_s.value), _arr.length !== i); _n = !0); } catch (err) { _d = !0, _e = err; } finally { try { if (!_n && null != _i["return"] && (_r = _i["return"](), Object(_r) !== _r)) return; } finally { if (_d) throw _e; } } return _arr; } }
+function _iterableToArrayLimit(r, l) { var t = null == r ? null : "undefined" != typeof Symbol && r[Symbol.iterator] || r["@@iterator"]; if (null != t) { var e, n, i, u, a = [], f = !0, o = !1; try { if (i = (t = t.call(r)).next, 0 === l) { if (Object(t) !== t) return; f = !1; } else for (; !(f = (e = i.call(t)).done) && (a.push(e.value), a.length !== l); f = !0); } catch (r) { o = !0, n = r; } finally { try { if (!f && null != t["return"] && (u = t["return"](), Object(u) !== u)) return; } finally { if (o) throw n; } } return a; } }
 function _arrayWithHoles(arr) { if (Array.isArray(arr)) return arr; }
 
 
@@ -4696,22 +5671,23 @@ var CheckInput = function CheckInput(inputs, object) {
     failed: false
   };
   var _loop = function _loop(key) {
-    var item = object[key];
-    var column = inputs.find(function (f) {
-      return f.key == key;
-    });
-    if (column && column.type == "hidden") return "continue";
-    if (item) {
-      result.count++;
-      return "continue";
-    }
-    ;
-    result.errors[key] = "error";
-    result.failed = true;
-  };
+      var item = object[key];
+      var column = inputs.find(function (f) {
+        return f.key == key;
+      });
+      if (column && column.type == "hidden") return 0; // continue
+      if (item) {
+        result.count++;
+        return 0; // continue
+      }
+      ;
+      result.errors[key] = "error";
+      result.failed = true;
+    },
+    _ret;
   for (var key in object) {
-    var _ret = _loop(key);
-    if (_ret === "continue") continue;
+    _ret = _loop(key);
+    if (_ret === 0) continue;
   }
   ;
   return result;
@@ -4929,12 +5905,12 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony import */ var react__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__webpack_require__.n(react__WEBPACK_IMPORTED_MODULE_0__);
 /* harmony import */ var _components_Gallery_styles_gallery_scss__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! @components/Gallery/styles/gallery.scss */ "./source/components/Gallery/styles/gallery.scss");
 /* harmony import */ var _components_Gallery_preview__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! @components/Gallery/preview */ "./source/components/Gallery/preview.js");
-function _typeof(obj) { "@babel/helpers - typeof"; return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function (obj) { return typeof obj; } : function (obj) { return obj && "function" == typeof Symbol && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; }, _typeof(obj); }
-function ownKeys(object, enumerableOnly) { var keys = Object.keys(object); if (Object.getOwnPropertySymbols) { var symbols = Object.getOwnPropertySymbols(object); enumerableOnly && (symbols = symbols.filter(function (sym) { return Object.getOwnPropertyDescriptor(object, sym).enumerable; })), keys.push.apply(keys, symbols); } return keys; }
-function _objectSpread(target) { for (var i = 1; i < arguments.length; i++) { var source = null != arguments[i] ? arguments[i] : {}; i % 2 ? ownKeys(Object(source), !0).forEach(function (key) { _defineProperty(target, key, source[key]); }) : Object.getOwnPropertyDescriptors ? Object.defineProperties(target, Object.getOwnPropertyDescriptors(source)) : ownKeys(Object(source)).forEach(function (key) { Object.defineProperty(target, key, Object.getOwnPropertyDescriptor(source, key)); }); } return target; }
+function _typeof(o) { "@babel/helpers - typeof"; return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function (o) { return typeof o; } : function (o) { return o && "function" == typeof Symbol && o.constructor === Symbol && o !== Symbol.prototype ? "symbol" : typeof o; }, _typeof(o); }
+function ownKeys(e, r) { var t = Object.keys(e); if (Object.getOwnPropertySymbols) { var o = Object.getOwnPropertySymbols(e); r && (o = o.filter(function (r) { return Object.getOwnPropertyDescriptor(e, r).enumerable; })), t.push.apply(t, o); } return t; }
+function _objectSpread(e) { for (var r = 1; r < arguments.length; r++) { var t = null != arguments[r] ? arguments[r] : {}; r % 2 ? ownKeys(Object(t), !0).forEach(function (r) { _defineProperty(e, r, t[r]); }) : Object.getOwnPropertyDescriptors ? Object.defineProperties(e, Object.getOwnPropertyDescriptors(t)) : ownKeys(Object(t)).forEach(function (r) { Object.defineProperty(e, r, Object.getOwnPropertyDescriptor(t, r)); }); } return e; }
 function _defineProperty(obj, key, value) { key = _toPropertyKey(key); if (key in obj) { Object.defineProperty(obj, key, { value: value, enumerable: true, configurable: true, writable: true }); } else { obj[key] = value; } return obj; }
-function _toPropertyKey(arg) { var key = _toPrimitive(arg, "string"); return _typeof(key) === "symbol" ? key : String(key); }
-function _toPrimitive(input, hint) { if (_typeof(input) !== "object" || input === null) return input; var prim = input[Symbol.toPrimitive]; if (prim !== undefined) { var res = prim.call(input, hint || "default"); if (_typeof(res) !== "object") return res; throw new TypeError("@@toPrimitive must return a primitive value."); } return (hint === "string" ? String : Number)(input); }
+function _toPropertyKey(t) { var i = _toPrimitive(t, "string"); return "symbol" == _typeof(i) ? i : String(i); }
+function _toPrimitive(t, r) { if ("object" != _typeof(t) || !t) return t; var e = t[Symbol.toPrimitive]; if (void 0 !== e) { var i = e.call(t, r || "default"); if ("object" != _typeof(i)) return i; throw new TypeError("@@toPrimitive must return a primitive value."); } return ("string" === r ? String : Number)(t); }
 function _toConsumableArray(arr) { return _arrayWithoutHoles(arr) || _iterableToArray(arr) || _unsupportedIterableToArray(arr) || _nonIterableSpread(); }
 function _nonIterableSpread() { throw new TypeError("Invalid attempt to spread non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method."); }
 function _iterableToArray(iter) { if (typeof Symbol !== "undefined" && iter[Symbol.iterator] != null || iter["@@iterator"] != null) return Array.from(iter); }
@@ -4943,7 +5919,7 @@ function _slicedToArray(arr, i) { return _arrayWithHoles(arr) || _iterableToArra
 function _nonIterableRest() { throw new TypeError("Invalid attempt to destructure non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method."); }
 function _unsupportedIterableToArray(o, minLen) { if (!o) return; if (typeof o === "string") return _arrayLikeToArray(o, minLen); var n = Object.prototype.toString.call(o).slice(8, -1); if (n === "Object" && o.constructor) n = o.constructor.name; if (n === "Map" || n === "Set") return Array.from(o); if (n === "Arguments" || /^(?:Ui|I)nt(?:8|16|32)(?:Clamped)?Array$/.test(n)) return _arrayLikeToArray(o, minLen); }
 function _arrayLikeToArray(arr, len) { if (len == null || len > arr.length) len = arr.length; for (var i = 0, arr2 = new Array(len); i < len; i++) arr2[i] = arr[i]; return arr2; }
-function _iterableToArrayLimit(arr, i) { var _i = null == arr ? null : "undefined" != typeof Symbol && arr[Symbol.iterator] || arr["@@iterator"]; if (null != _i) { var _s, _e, _x, _r, _arr = [], _n = !0, _d = !1; try { if (_x = (_i = _i.call(arr)).next, 0 === i) { if (Object(_i) !== _i) return; _n = !1; } else for (; !(_n = (_s = _x.call(_i)).done) && (_arr.push(_s.value), _arr.length !== i); _n = !0); } catch (err) { _d = !0, _e = err; } finally { try { if (!_n && null != _i["return"] && (_r = _i["return"](), Object(_r) !== _r)) return; } finally { if (_d) throw _e; } } return _arr; } }
+function _iterableToArrayLimit(r, l) { var t = null == r ? null : "undefined" != typeof Symbol && r[Symbol.iterator] || r["@@iterator"]; if (null != t) { var e, n, i, u, a = [], f = !0, o = !1; try { if (i = (t = t.call(r)).next, 0 === l) { if (Object(t) !== t) return; f = !1; } else for (; !(f = (e = i.call(t)).done) && (a.push(e.value), a.length !== l); f = !0); } catch (r) { o = !0, n = r; } finally { try { if (!f && null != t["return"] && (u = t["return"](), Object(u) !== u)) return; } finally { if (o) throw n; } } return a; } }
 function _arrayWithHoles(arr) { if (Array.isArray(arr)) return arr; }
 
 
@@ -5211,22 +6187,22 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony import */ var react__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! react */ "./node_modules/react/index.js");
 /* harmony import */ var react__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__webpack_require__.n(react__WEBPACK_IMPORTED_MODULE_0__);
 /* harmony import */ var _components_Selector_json_styles_selector_json_scss__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! @components/Selector-json/styles/selector-json.scss */ "./source/components/Selector-json/styles/selector-json.scss");
-function _typeof(obj) { "@babel/helpers - typeof"; return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function (obj) { return typeof obj; } : function (obj) { return obj && "function" == typeof Symbol && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; }, _typeof(obj); }
-function _createForOfIteratorHelper(o, allowArrayLike) { var it = typeof Symbol !== "undefined" && o[Symbol.iterator] || o["@@iterator"]; if (!it) { if (Array.isArray(o) || (it = _unsupportedIterableToArray(o)) || allowArrayLike && o && typeof o.length === "number") { if (it) o = it; var i = 0; var F = function F() {}; return { s: F, n: function n() { if (i >= o.length) return { done: true }; return { done: false, value: o[i++] }; }, e: function e(_e2) { throw _e2; }, f: F }; } throw new TypeError("Invalid attempt to iterate non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method."); } var normalCompletion = true, didErr = false, err; return { s: function s() { it = it.call(o); }, n: function n() { var step = it.next(); normalCompletion = step.done; return step; }, e: function e(_e3) { didErr = true; err = _e3; }, f: function f() { try { if (!normalCompletion && it["return"] != null) it["return"](); } finally { if (didErr) throw err; } } }; }
+function _typeof(o) { "@babel/helpers - typeof"; return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function (o) { return typeof o; } : function (o) { return o && "function" == typeof Symbol && o.constructor === Symbol && o !== Symbol.prototype ? "symbol" : typeof o; }, _typeof(o); }
+function _createForOfIteratorHelper(o, allowArrayLike) { var it = typeof Symbol !== "undefined" && o[Symbol.iterator] || o["@@iterator"]; if (!it) { if (Array.isArray(o) || (it = _unsupportedIterableToArray(o)) || allowArrayLike && o && typeof o.length === "number") { if (it) o = it; var i = 0; var F = function F() {}; return { s: F, n: function n() { if (i >= o.length) return { done: true }; return { done: false, value: o[i++] }; }, e: function e(_e) { throw _e; }, f: F }; } throw new TypeError("Invalid attempt to iterate non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method."); } var normalCompletion = true, didErr = false, err; return { s: function s() { it = it.call(o); }, n: function n() { var step = it.next(); normalCompletion = step.done; return step; }, e: function e(_e2) { didErr = true; err = _e2; }, f: function f() { try { if (!normalCompletion && it["return"] != null) it["return"](); } finally { if (didErr) throw err; } } }; }
 function _toConsumableArray(arr) { return _arrayWithoutHoles(arr) || _iterableToArray(arr) || _unsupportedIterableToArray(arr) || _nonIterableSpread(); }
 function _nonIterableSpread() { throw new TypeError("Invalid attempt to spread non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method."); }
 function _iterableToArray(iter) { if (typeof Symbol !== "undefined" && iter[Symbol.iterator] != null || iter["@@iterator"] != null) return Array.from(iter); }
 function _arrayWithoutHoles(arr) { if (Array.isArray(arr)) return _arrayLikeToArray(arr); }
-function ownKeys(object, enumerableOnly) { var keys = Object.keys(object); if (Object.getOwnPropertySymbols) { var symbols = Object.getOwnPropertySymbols(object); enumerableOnly && (symbols = symbols.filter(function (sym) { return Object.getOwnPropertyDescriptor(object, sym).enumerable; })), keys.push.apply(keys, symbols); } return keys; }
-function _objectSpread(target) { for (var i = 1; i < arguments.length; i++) { var source = null != arguments[i] ? arguments[i] : {}; i % 2 ? ownKeys(Object(source), !0).forEach(function (key) { _defineProperty(target, key, source[key]); }) : Object.getOwnPropertyDescriptors ? Object.defineProperties(target, Object.getOwnPropertyDescriptors(source)) : ownKeys(Object(source)).forEach(function (key) { Object.defineProperty(target, key, Object.getOwnPropertyDescriptor(source, key)); }); } return target; }
+function ownKeys(e, r) { var t = Object.keys(e); if (Object.getOwnPropertySymbols) { var o = Object.getOwnPropertySymbols(e); r && (o = o.filter(function (r) { return Object.getOwnPropertyDescriptor(e, r).enumerable; })), t.push.apply(t, o); } return t; }
+function _objectSpread(e) { for (var r = 1; r < arguments.length; r++) { var t = null != arguments[r] ? arguments[r] : {}; r % 2 ? ownKeys(Object(t), !0).forEach(function (r) { _defineProperty(e, r, t[r]); }) : Object.getOwnPropertyDescriptors ? Object.defineProperties(e, Object.getOwnPropertyDescriptors(t)) : ownKeys(Object(t)).forEach(function (r) { Object.defineProperty(e, r, Object.getOwnPropertyDescriptor(t, r)); }); } return e; }
 function _defineProperty(obj, key, value) { key = _toPropertyKey(key); if (key in obj) { Object.defineProperty(obj, key, { value: value, enumerable: true, configurable: true, writable: true }); } else { obj[key] = value; } return obj; }
-function _toPropertyKey(arg) { var key = _toPrimitive(arg, "string"); return _typeof(key) === "symbol" ? key : String(key); }
-function _toPrimitive(input, hint) { if (_typeof(input) !== "object" || input === null) return input; var prim = input[Symbol.toPrimitive]; if (prim !== undefined) { var res = prim.call(input, hint || "default"); if (_typeof(res) !== "object") return res; throw new TypeError("@@toPrimitive must return a primitive value."); } return (hint === "string" ? String : Number)(input); }
+function _toPropertyKey(t) { var i = _toPrimitive(t, "string"); return "symbol" == _typeof(i) ? i : String(i); }
+function _toPrimitive(t, r) { if ("object" != _typeof(t) || !t) return t; var e = t[Symbol.toPrimitive]; if (void 0 !== e) { var i = e.call(t, r || "default"); if ("object" != _typeof(i)) return i; throw new TypeError("@@toPrimitive must return a primitive value."); } return ("string" === r ? String : Number)(t); }
 function _slicedToArray(arr, i) { return _arrayWithHoles(arr) || _iterableToArrayLimit(arr, i) || _unsupportedIterableToArray(arr, i) || _nonIterableRest(); }
 function _nonIterableRest() { throw new TypeError("Invalid attempt to destructure non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method."); }
 function _unsupportedIterableToArray(o, minLen) { if (!o) return; if (typeof o === "string") return _arrayLikeToArray(o, minLen); var n = Object.prototype.toString.call(o).slice(8, -1); if (n === "Object" && o.constructor) n = o.constructor.name; if (n === "Map" || n === "Set") return Array.from(o); if (n === "Arguments" || /^(?:Ui|I)nt(?:8|16|32)(?:Clamped)?Array$/.test(n)) return _arrayLikeToArray(o, minLen); }
 function _arrayLikeToArray(arr, len) { if (len == null || len > arr.length) len = arr.length; for (var i = 0, arr2 = new Array(len); i < len; i++) arr2[i] = arr[i]; return arr2; }
-function _iterableToArrayLimit(arr, i) { var _i = null == arr ? null : "undefined" != typeof Symbol && arr[Symbol.iterator] || arr["@@iterator"]; if (null != _i) { var _s, _e, _x, _r, _arr = [], _n = !0, _d = !1; try { if (_x = (_i = _i.call(arr)).next, 0 === i) { if (Object(_i) !== _i) return; _n = !1; } else for (; !(_n = (_s = _x.call(_i)).done) && (_arr.push(_s.value), _arr.length !== i); _n = !0); } catch (err) { _d = !0, _e = err; } finally { try { if (!_n && null != _i["return"] && (_r = _i["return"](), Object(_r) !== _r)) return; } finally { if (_d) throw _e; } } return _arr; } }
+function _iterableToArrayLimit(r, l) { var t = null == r ? null : "undefined" != typeof Symbol && r[Symbol.iterator] || r["@@iterator"]; if (null != t) { var e, n, i, u, a = [], f = !0, o = !1; try { if (i = (t = t.call(r)).next, 0 === l) { if (Object(t) !== t) return; f = !1; } else for (; !(f = (e = i.call(t)).done) && (a.push(e.value), a.length !== l); f = !0); } catch (r) { o = !0, n = r; } finally { try { if (!f && null != t["return"] && (u = t["return"](), Object(u) !== u)) return; } finally { if (o) throw n; } } return a; } }
 function _arrayWithHoles(arr) { if (Array.isArray(arr)) return arr; }
 
 
@@ -5525,7 +6501,7 @@ var Child = function Child(props) {
   }, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("div", {
     className: "tree-child-wrap "
   }, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("p", {
-    className: "tree-child-expand",
+    className: "tree-child-expand " + (!expanded ? "" : "expand-arrow"),
     onClick: function onClick() {
       dispatch(["expanded", {
         id: id,
@@ -5580,17 +6556,17 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony import */ var react__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__webpack_require__.n(react__WEBPACK_IMPORTED_MODULE_0__);
 /* harmony import */ var _components_Tree_styles_tree_scss__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! @components/Tree/styles/tree.scss */ "./source/components/Tree/styles/tree.scss");
 /* harmony import */ var _components_Tree_child__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! @components/Tree/child */ "./source/components/Tree/child.js");
-function _typeof(obj) { "@babel/helpers - typeof"; return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function (obj) { return typeof obj; } : function (obj) { return obj && "function" == typeof Symbol && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; }, _typeof(obj); }
-function ownKeys(object, enumerableOnly) { var keys = Object.keys(object); if (Object.getOwnPropertySymbols) { var symbols = Object.getOwnPropertySymbols(object); enumerableOnly && (symbols = symbols.filter(function (sym) { return Object.getOwnPropertyDescriptor(object, sym).enumerable; })), keys.push.apply(keys, symbols); } return keys; }
-function _objectSpread(target) { for (var i = 1; i < arguments.length; i++) { var source = null != arguments[i] ? arguments[i] : {}; i % 2 ? ownKeys(Object(source), !0).forEach(function (key) { _defineProperty(target, key, source[key]); }) : Object.getOwnPropertyDescriptors ? Object.defineProperties(target, Object.getOwnPropertyDescriptors(source)) : ownKeys(Object(source)).forEach(function (key) { Object.defineProperty(target, key, Object.getOwnPropertyDescriptor(source, key)); }); } return target; }
+function _typeof(o) { "@babel/helpers - typeof"; return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function (o) { return typeof o; } : function (o) { return o && "function" == typeof Symbol && o.constructor === Symbol && o !== Symbol.prototype ? "symbol" : typeof o; }, _typeof(o); }
+function ownKeys(e, r) { var t = Object.keys(e); if (Object.getOwnPropertySymbols) { var o = Object.getOwnPropertySymbols(e); r && (o = o.filter(function (r) { return Object.getOwnPropertyDescriptor(e, r).enumerable; })), t.push.apply(t, o); } return t; }
+function _objectSpread(e) { for (var r = 1; r < arguments.length; r++) { var t = null != arguments[r] ? arguments[r] : {}; r % 2 ? ownKeys(Object(t), !0).forEach(function (r) { _defineProperty(e, r, t[r]); }) : Object.getOwnPropertyDescriptors ? Object.defineProperties(e, Object.getOwnPropertyDescriptors(t)) : ownKeys(Object(t)).forEach(function (r) { Object.defineProperty(e, r, Object.getOwnPropertyDescriptor(t, r)); }); } return e; }
 function _defineProperty(obj, key, value) { key = _toPropertyKey(key); if (key in obj) { Object.defineProperty(obj, key, { value: value, enumerable: true, configurable: true, writable: true }); } else { obj[key] = value; } return obj; }
-function _toPropertyKey(arg) { var key = _toPrimitive(arg, "string"); return _typeof(key) === "symbol" ? key : String(key); }
-function _toPrimitive(input, hint) { if (_typeof(input) !== "object" || input === null) return input; var prim = input[Symbol.toPrimitive]; if (prim !== undefined) { var res = prim.call(input, hint || "default"); if (_typeof(res) !== "object") return res; throw new TypeError("@@toPrimitive must return a primitive value."); } return (hint === "string" ? String : Number)(input); }
+function _toPropertyKey(t) { var i = _toPrimitive(t, "string"); return "symbol" == _typeof(i) ? i : String(i); }
+function _toPrimitive(t, r) { if ("object" != _typeof(t) || !t) return t; var e = t[Symbol.toPrimitive]; if (void 0 !== e) { var i = e.call(t, r || "default"); if ("object" != _typeof(i)) return i; throw new TypeError("@@toPrimitive must return a primitive value."); } return ("string" === r ? String : Number)(t); }
 function _slicedToArray(arr, i) { return _arrayWithHoles(arr) || _iterableToArrayLimit(arr, i) || _unsupportedIterableToArray(arr, i) || _nonIterableRest(); }
 function _nonIterableRest() { throw new TypeError("Invalid attempt to destructure non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method."); }
 function _unsupportedIterableToArray(o, minLen) { if (!o) return; if (typeof o === "string") return _arrayLikeToArray(o, minLen); var n = Object.prototype.toString.call(o).slice(8, -1); if (n === "Object" && o.constructor) n = o.constructor.name; if (n === "Map" || n === "Set") return Array.from(o); if (n === "Arguments" || /^(?:Ui|I)nt(?:8|16|32)(?:Clamped)?Array$/.test(n)) return _arrayLikeToArray(o, minLen); }
 function _arrayLikeToArray(arr, len) { if (len == null || len > arr.length) len = arr.length; for (var i = 0, arr2 = new Array(len); i < len; i++) arr2[i] = arr[i]; return arr2; }
-function _iterableToArrayLimit(arr, i) { var _i = null == arr ? null : "undefined" != typeof Symbol && arr[Symbol.iterator] || arr["@@iterator"]; if (null != _i) { var _s, _e, _x, _r, _arr = [], _n = !0, _d = !1; try { if (_x = (_i = _i.call(arr)).next, 0 === i) { if (Object(_i) !== _i) return; _n = !1; } else for (; !(_n = (_s = _x.call(_i)).done) && (_arr.push(_s.value), _arr.length !== i); _n = !0); } catch (err) { _d = !0, _e = err; } finally { try { if (!_n && null != _i["return"] && (_r = _i["return"](), Object(_r) !== _r)) return; } finally { if (_d) throw _e; } } return _arr; } }
+function _iterableToArrayLimit(r, l) { var t = null == r ? null : "undefined" != typeof Symbol && r[Symbol.iterator] || r["@@iterator"]; if (null != t) { var e, n, i, u, a = [], f = !0, o = !1; try { if (i = (t = t.call(r)).next, 0 === l) { if (Object(t) !== t) return; f = !1; } else for (; !(f = (e = i.call(t)).done) && (a.push(e.value), a.length !== l); f = !0); } catch (r) { o = !0, n = r; } finally { try { if (!f && null != t["return"] && (u = t["return"](), Object(u) !== u)) return; } finally { if (o) throw n; } } return a; } }
 function _arrayWithHoles(arr) { if (Array.isArray(arr)) return arr; }
 
 
@@ -5603,8 +6579,6 @@ var TreeReducer = function TreeReducer(state, _ref) {
     data2 = _ref2[2];
   if (type == "add") {
     var table = _objectSpread({}, state.table);
-
-    //data === parentId
     var parent = data ? table[data] : state.root;
     if (!parent) return state;
     var leaf = {
@@ -5620,7 +6594,8 @@ var TreeReducer = function TreeReducer(state, _ref) {
     return _objectSpread(_objectSpread({}, state), {}, {
       table: table
     });
-  } else if (type == "remove") {
+  }
+  if (type == "remove") {
     var _table = _objectSpread({}, state.table);
     var _parent = data.parentId < 0 ? state.root : _table[data.parentId];
     if (!_parent) return state;
@@ -5633,7 +6608,8 @@ var TreeReducer = function TreeReducer(state, _ref) {
     return _objectSpread(_objectSpread({}, state), {}, {
       table: _table
     });
-  } else if (type == "expanded") {
+  }
+  if (type == "expanded") {
     var _table2 = _objectSpread({}, state.table);
     _table2[data.id].expanded = data.value;
     return _objectSpread(_objectSpread({}, state), {}, {
@@ -5686,6 +6662,228 @@ var Tree = function Tree(props) {
 
 /***/ }),
 
+/***/ "./source/components/canvas.js":
+/*!*************************************!*\
+  !*** ./source/components/canvas.js ***!
+  \*************************************/
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   GraphCanvas: () => (/* binding */ GraphCanvas)
+/* harmony export */ });
+/* harmony import */ var react__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! react */ "./node_modules/react/index.js");
+/* harmony import */ var react__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__webpack_require__.n(react__WEBPACK_IMPORTED_MODULE_0__);
+/* harmony import */ var _components_canvas_scss__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! @components/canvas.scss */ "./source/components/canvas.scss");
+function _createForOfIteratorHelper(o, allowArrayLike) { var it = typeof Symbol !== "undefined" && o[Symbol.iterator] || o["@@iterator"]; if (!it) { if (Array.isArray(o) || (it = _unsupportedIterableToArray(o)) || allowArrayLike && o && typeof o.length === "number") { if (it) o = it; var i = 0; var F = function F() {}; return { s: F, n: function n() { if (i >= o.length) return { done: true }; return { done: false, value: o[i++] }; }, e: function e(_e) { throw _e; }, f: F }; } throw new TypeError("Invalid attempt to iterate non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method."); } var normalCompletion = true, didErr = false, err; return { s: function s() { it = it.call(o); }, n: function n() { var step = it.next(); normalCompletion = step.done; return step; }, e: function e(_e2) { didErr = true; err = _e2; }, f: function f() { try { if (!normalCompletion && it["return"] != null) it["return"](); } finally { if (didErr) throw err; } } }; }
+function _slicedToArray(arr, i) { return _arrayWithHoles(arr) || _iterableToArrayLimit(arr, i) || _unsupportedIterableToArray(arr, i) || _nonIterableRest(); }
+function _nonIterableRest() { throw new TypeError("Invalid attempt to destructure non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method."); }
+function _unsupportedIterableToArray(o, minLen) { if (!o) return; if (typeof o === "string") return _arrayLikeToArray(o, minLen); var n = Object.prototype.toString.call(o).slice(8, -1); if (n === "Object" && o.constructor) n = o.constructor.name; if (n === "Map" || n === "Set") return Array.from(o); if (n === "Arguments" || /^(?:Ui|I)nt(?:8|16|32)(?:Clamped)?Array$/.test(n)) return _arrayLikeToArray(o, minLen); }
+function _arrayLikeToArray(arr, len) { if (len == null || len > arr.length) len = arr.length; for (var i = 0, arr2 = new Array(len); i < len; i++) arr2[i] = arr[i]; return arr2; }
+function _iterableToArrayLimit(r, l) { var t = null == r ? null : "undefined" != typeof Symbol && r[Symbol.iterator] || r["@@iterator"]; if (null != t) { var e, n, i, u, a = [], f = !0, o = !1; try { if (i = (t = t.call(r)).next, 0 === l) { if (Object(t) !== t) return; f = !1; } else for (; !(f = (e = i.call(t)).done) && (a.push(e.value), a.length !== l); f = !0); } catch (r) { o = !0, n = r; } finally { try { if (!f && null != t["return"] && (u = t["return"](), Object(u) !== u)) return; } finally { if (o) throw n; } } return a; } }
+function _arrayWithHoles(arr) { if (Array.isArray(arr)) return arr; }
+
+
+var GraphCanvas = function GraphCanvas(props) {
+  var width = props.width,
+    height = props.height,
+    array = props.array;
+  var canvasRef = (0,react__WEBPACK_IMPORTED_MODULE_0__.useRef)(null);
+  var _useState = (0,react__WEBPACK_IMPORTED_MODULE_0__.useState)({
+      coords: null,
+      data: null
+    }),
+    _useState2 = _slicedToArray(_useState, 2),
+    hovered = _useState2[0],
+    setHovered = _useState2[1];
+  if (!array) array = [];
+
+  //#Visual Setting
+  var padding = [68, 20, 20, 20];
+  var textPaddingLeft = 20;
+  var strokeColor = "rgb(28 96 232)";
+  var fillColor = "rgb(27 91 218 / 44%)";
+  var textStyle = "14px serif";
+  var textColor = "rgb(28 96 232)";
+  var lineColor = "rgb(28 96 232 / 30%)";
+  var paddingOffset = [width - (padding[0] + padding[2]), height - (padding[1] + padding[3])];
+  //^
+
+  var computedLines = (0,react__WEBPACK_IMPORTED_MODULE_0__.useMemo)(function () {
+    if (!canvasRef.current) return {
+      coords: [],
+      data: []
+    };
+    var canvas = canvasRef.current;
+    var ctx = canvas.getContext("2d");
+    var maxWidth = 0;
+    var minWidth = 9999999999;
+    var maxHeight = 0;
+    var deltaWidth = 1;
+    var computedCoords = [];
+    var computedData = [];
+    var line = function line(a) {
+      return ctx.lineTo(a[0], a[1]);
+    };
+    var move = function move(a) {
+      return ctx.moveTo(a[0], a[1]);
+    };
+    var calc = function calc(x, y) {
+      return [(x - minWidth) / deltaWidth * ctx.canvas.width, (1.0 - y / maxHeight) * ctx.canvas.height];
+    };
+    var calcOffset = function calcOffset(x, y) {
+      return [(x - minWidth) / deltaWidth * paddingOffset[0] + padding[0], (1.0 - y / maxHeight) * paddingOffset[1] + padding[1]];
+    };
+    var data = [];
+    var _iterator = _createForOfIteratorHelper(array),
+      _step;
+    try {
+      for (_iterator.s(); !(_step = _iterator.n()).done;) {
+        var _item4 = _step.value;
+        data.push([+new Date(_item4.date), _item4.amount, _item4]);
+      }
+    } catch (err) {
+      _iterator.e(err);
+    } finally {
+      _iterator.f();
+    }
+    ;
+    data.sort(function (a, b) {
+      return a[0] - b[0];
+    });
+    for (var _i = 0, _data = data; _i < _data.length; _i++) {
+      var item = _data[_i];
+      if (item[1] > maxHeight) maxHeight = item[1];
+    }
+    ;
+    maxWidth = data.length ? data[data.length - 1][0] : 0;
+    minWidth = data.length ? data[0][0] : 0;
+    deltaWidth = maxWidth - minWidth;
+    //maxHeight *= 1.3;
+
+    //#Fill background
+    ctx.beginPath();
+    ctx.fillStyle = fillColor;
+    if (data.length) {
+      move(calcOffset(minWidth, 0));
+    }
+    ;
+    for (var _i2 = 0, _data2 = data; _i2 < _data2.length; _i2++) {
+      var _item = _data2[_i2];
+      line(calcOffset(_item[0], _item[1]));
+      computedCoords.push(calcOffset(_item[0], _item[1]));
+      computedData.push(_item[2]);
+    }
+    ;
+    line(calcOffset(maxWidth, 0));
+    ctx.fill();
+    ctx.closePath();
+    //^
+    //#Border-line background
+    ctx.beginPath();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = strokeColor;
+    for (var _i3 = 0, _data3 = data; _i3 < _data3.length; _i3++) {
+      var _item2 = _data3[_i3];
+      line(calcOffset(_item2[0], _item2[1]));
+    }
+    ;
+    ctx.stroke();
+    ctx.closePath();
+    //^
+
+    //let lines = [13000,11000,9000,7000,5000,0];
+    var lines = [];
+    var lineValue = 0;
+    var lineDeltaValue = maxHeight / 6.0 - maxHeight / 6.0 % 100;
+    for (var n = 0; n < 7; n++) {
+      lines.push(lineValue);
+      lineValue += lineDeltaValue;
+    }
+    ;
+    for (var _i4 = 0, _lines = lines; _i4 < _lines.length; _i4++) {
+      var _item3 = _lines[_i4];
+      ctx.beginPath();
+      move(calcOffset(0, 0));
+
+      //Text
+      var c = calcOffset(minWidth, _item3);
+      ctx.font = textStyle;
+      ctx.strokeStyle = textColor;
+      ctx.strokeText(_item3.toString(), c[0] - (padding[0] - textPaddingLeft), c[1]);
+      //
+      //Line
+      ctx.strokeStyle = lineColor;
+      line(calcOffset(minWidth, _item3));
+      line(calcOffset(maxWidth, _item3));
+      //
+
+      ctx.stroke();
+      ctx.closePath();
+    }
+    ;
+    return {
+      coords: computedCoords,
+      data: computedData
+    };
+  }, [array, width, height]);
+  return /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("div", {
+    className: "canvas"
+  }, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("canvas", {
+    width: width,
+    height: height,
+    ref: canvasRef,
+    onMouseMove: function onMouseMove(e) {
+      var rect = e.target.getBoundingClientRect();
+      var x = e.clientX - rect.left;
+      var y = e.clientY - rect.top;
+      var maxX = paddingOffset[0];
+      var maxY = paddingOffset[1];
+      var needle = null;
+      var coords = null;
+      var index = -1;
+      var _iterator2 = _createForOfIteratorHelper(computedLines.coords),
+        _step2;
+      try {
+        for (_iterator2.s(); !(_step2 = _iterator2.n()).done;) {
+          var item = _step2.value;
+          index++;
+          if (x > item[0]) continue;
+          needle = computedLines.data[index];
+          coords = item;
+          break;
+        }
+      } catch (err) {
+        _iterator2.e(err);
+      } finally {
+        _iterator2.f();
+      }
+      ;
+      if (x < padding[0]) {
+        needle = null;
+        coords = null;
+      }
+      ;
+      setHovered({
+        coords: coords,
+        data: needle
+      });
+    }
+  }), /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("div", {
+    className: "canvas-point" + (hovered.data ? "" : " hidden"),
+    style: {
+      left: (hovered.coords ? hovered.coords[0] : 0) + "px",
+      top: (hovered.coords ? hovered.coords[1] : 0) + "px"
+    }
+  }, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("div", {
+    className: "canvas-point-dot"
+  }), /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("div", {
+    className: "canvas-point-tooltip"
+  }, hovered.data ? /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("div", null, hovered.data.amount) : null)));
+};
+
+/***/ }),
+
 /***/ "./source/modules/app.jsx":
 /*!********************************!*\
   !*** ./source/modules/app.jsx ***!
@@ -5701,19 +6899,21 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony import */ var _styles_main_scss__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! @styles/main.scss */ "./assets/styles/main.scss");
 /* harmony import */ var _styles_fonts_scss__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! @styles/fonts.scss */ "./assets/styles/fonts.scss");
 /* harmony import */ var _styles_app_scss__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(/*! @styles/app.scss */ "./assets/styles/app.scss");
-/* harmony import */ var react_router_dom__WEBPACK_IMPORTED_MODULE_9__ = __webpack_require__(/*! react-router-dom */ "./node_modules/react-router/dist/index.js");
-/* harmony import */ var react_router_dom__WEBPACK_IMPORTED_MODULE_10__ = __webpack_require__(/*! react-router-dom */ "./node_modules/react-router-dom/dist/index.js");
+/* harmony import */ var react_router_dom__WEBPACK_IMPORTED_MODULE_10__ = __webpack_require__(/*! react-router-dom */ "./node_modules/react-router/dist/index.js");
+/* harmony import */ var react_router_dom__WEBPACK_IMPORTED_MODULE_11__ = __webpack_require__(/*! react-router-dom */ "./node_modules/react-router-dom/dist/index.js");
 /* harmony import */ var _components_Calc2_calc2__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(/*! @components/Calc2/calc2 */ "./source/components/Calc2/calc2.js");
 /* harmony import */ var _components_Selector_json_selector_json__WEBPACK_IMPORTED_MODULE_5__ = __webpack_require__(/*! @components/Selector-json/selector-json */ "./source/components/Selector-json/selector-json.js");
 /* harmony import */ var _components_Data_Table_data_table__WEBPACK_IMPORTED_MODULE_6__ = __webpack_require__(/*! @components/Data-Table/data.table */ "./source/components/Data-Table/data.table.js");
 /* harmony import */ var _components_Gallery_gallery__WEBPACK_IMPORTED_MODULE_7__ = __webpack_require__(/*! @components/Gallery/gallery */ "./source/components/Gallery/gallery.js");
 /* harmony import */ var _components_Tree_tree__WEBPACK_IMPORTED_MODULE_8__ = __webpack_require__(/*! @components/Tree/tree */ "./source/components/Tree/tree.js");
+/* harmony import */ var _components_Chart_chart__WEBPACK_IMPORTED_MODULE_9__ = __webpack_require__(/*! @components/Chart/chart */ "./source/components/Chart/chart.js");
 function _slicedToArray(arr, i) { return _arrayWithHoles(arr) || _iterableToArrayLimit(arr, i) || _unsupportedIterableToArray(arr, i) || _nonIterableRest(); }
 function _nonIterableRest() { throw new TypeError("Invalid attempt to destructure non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method."); }
 function _unsupportedIterableToArray(o, minLen) { if (!o) return; if (typeof o === "string") return _arrayLikeToArray(o, minLen); var n = Object.prototype.toString.call(o).slice(8, -1); if (n === "Object" && o.constructor) n = o.constructor.name; if (n === "Map" || n === "Set") return Array.from(o); if (n === "Arguments" || /^(?:Ui|I)nt(?:8|16|32)(?:Clamped)?Array$/.test(n)) return _arrayLikeToArray(o, minLen); }
 function _arrayLikeToArray(arr, len) { if (len == null || len > arr.length) len = arr.length; for (var i = 0, arr2 = new Array(len); i < len; i++) arr2[i] = arr[i]; return arr2; }
-function _iterableToArrayLimit(arr, i) { var _i = null == arr ? null : "undefined" != typeof Symbol && arr[Symbol.iterator] || arr["@@iterator"]; if (null != _i) { var _s, _e, _x, _r, _arr = [], _n = !0, _d = !1; try { if (_x = (_i = _i.call(arr)).next, 0 === i) { if (Object(_i) !== _i) return; _n = !1; } else for (; !(_n = (_s = _x.call(_i)).done) && (_arr.push(_s.value), _arr.length !== i); _n = !0); } catch (err) { _d = !0, _e = err; } finally { try { if (!_n && null != _i["return"] && (_r = _i["return"](), Object(_r) !== _r)) return; } finally { if (_d) throw _e; } } return _arr; } }
+function _iterableToArrayLimit(r, l) { var t = null == r ? null : "undefined" != typeof Symbol && r[Symbol.iterator] || r["@@iterator"]; if (null != t) { var e, n, i, u, a = [], f = !0, o = !1; try { if (i = (t = t.call(r)).next, 0 === l) { if (Object(t) !== t) return; f = !1; } else for (; !(f = (e = i.call(t)).done) && (a.push(e.value), a.length !== l); f = !0); } catch (r) { o = !0, n = r; } finally { try { if (!f && null != t["return"] && (u = t["return"](), Object(u) !== u)) return; } finally { if (o) throw n; } } return a; } }
 function _arrayWithHoles(arr) { if (Array.isArray(arr)) return arr; }
+
 
 
 
@@ -5737,7 +6937,7 @@ var App = function App() {
     _useReducer2 = _slicedToArray(_useReducer, 2),
     state = _useReducer2[0],
     dispatch = _useReducer2[1];
-  var location = (0,react_router_dom__WEBPACK_IMPORTED_MODULE_9__.useLocation)();
+  var location = (0,react_router_dom__WEBPACK_IMPORTED_MODULE_10__.useLocation)();
   var pathname = location.pathname;
   var components = [{
     id: 0,
@@ -5773,6 +6973,13 @@ var App = function App() {
     path: "/tree",
     title: "Tree",
     key: "Tree",
+    icon: ""
+  }, {
+    id: 5,
+    element: /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement(_components_Chart_chart__WEBPACK_IMPORTED_MODULE_9__.Chart, null),
+    path: "/chart",
+    title: "Chart",
+    key: "Chart",
     icon: ""
   }];
   return /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("article", {
@@ -5815,21 +7022,21 @@ var App = function App() {
       className: "routing-link-item " + (pathname === item.path ? " select-item" : "")
     }, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("span", {
       className: "routing-link-item-i"
-    }, item.icon), /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement(react_router_dom__WEBPACK_IMPORTED_MODULE_10__.Link, {
+    }, item.icon), /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement(react_router_dom__WEBPACK_IMPORTED_MODULE_11__.Link, {
       to: item.path
     }, item.title));
   }))), /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("div", {
     className: "routing-elems"
   }, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("div", {
     className: "routing-elems-wrap"
-  }, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement(react_router_dom__WEBPACK_IMPORTED_MODULE_9__.Routes, null, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement(react_router_dom__WEBPACK_IMPORTED_MODULE_9__.Route, {
+  }, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement(react_router_dom__WEBPACK_IMPORTED_MODULE_10__.Routes, null, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement(react_router_dom__WEBPACK_IMPORTED_MODULE_10__.Route, {
     path: "/",
-    element: /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement(react_router_dom__WEBPACK_IMPORTED_MODULE_9__.Navigate, {
+    element: /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement(react_router_dom__WEBPACK_IMPORTED_MODULE_10__.Navigate, {
       to: "/calc",
       replace: true
     })
   }), components.map(function (item) {
-    return /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement(react_router_dom__WEBPACK_IMPORTED_MODULE_9__.Route, {
+    return /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement(react_router_dom__WEBPACK_IMPORTED_MODULE_10__.Route, {
       path: item.path,
       element: item.element,
       key: item.key
@@ -5868,6 +7075,7 @@ ___CSS_LOADER_EXPORT___.push([module.id, `.app {
 .routing {
   position: relative;
   display: flex;
+  max-width: 1920px;
   min-height: 100%;
   padding: 7px 8px 10px 8px;
   background: #301e3a;
@@ -5938,7 +7146,7 @@ ___CSS_LOADER_EXPORT___.push([module.id, `.app {
   background: #5d426f;
   padding: 6px 0px 5px 10px;
   border-radius: 0px; }
-`, "",{"version":3,"sources":["webpack://./assets/styles/app.scss"],"names":[],"mappings":"AAAA;EACC,kBAAkB;EAClB,WAAW;EACX,YAAY;EACZ,mBAAmB;EACnB,0BAA0B,EAAA;;AAG3B;EACC,kBAAkB;EAClB,aAAa;EACb,gBAAgB;EAChB,yBAAyB;EACzB,mBAAmB;EACnB,mBAAmB;EACnB,0BAA0B,EAAA;EAE1B;IACC,kBAAkB;IAClB,mBAAmB;IACnB,gCAAgC;IAChC,0BAA0B,EAAA;IAE1B;MACC,kBAAkB;MAClB,aAAa;MACb,yBAAyB;MACzB,eAAe,EAAA;MAEf;QACC,kBAAkB;QAClB,WAAW;QACX,iBAAiB,EAAA;MAGlB;QACC,kBAAkB;QAClB,eAAe;QACf,8BAA8B;QAC9B,cAAc;QACd,qBAAqB,EAAA;IAKvB;MACC,kBAAkB;MAClB,6BAA6B;MAC7B,cAAc;MACd,eAAe;MACf,0BAA0B,EAAA;EAI5B;IACC,kBAAkB;IAClB,kBAAkB,EAAA;IAElB;MACC,kBAAkB;MAClB,aAAa;MACb,cAAc;MACd,mBAAmB;MACnB,uBAAuB,EAAA;MAEvB;QACC,kBAAkB;QAClB,2BAA2B;QAC3B,eAAe;QACf,cAAc;QACd,iBAAiB,EAAA;IAInB;MACC,kBAAkB;MAClB,iCAAiC;MACjC,eAAe;MACf,8BAA8B;MAC9B,cAAc;MACd,qBAAqB,EAAA;EAIvB;IACC,kBAAkB;IAClB,WAAW;IACX,mBAAmB;IACnB,gCAAgC;IAChC,gBAAgB;IAChB,kBAAkB,EAAA;;AAIpB;EACC,WAAW;EACX,kBAAkB;EAClB,WAAW;EACX,WAAW;EACX,YAAY;EACZ,mBAAmB;EACnB,yBAAyB;EACzB,kBAAkB,EAAA","sourcesContent":[".app{\r\n\tposition: relative;\r\n\twidth: 100%;\r\n\theight: 100%;\r\n\tbackground: #271633;\r\n\tpadding: 10px 0px 10px 0px;\r\n}\r\n\r\n.routing{\r\n\tposition: relative;\r\n\tdisplay: flex;\r\n\tmin-height: 100%;\r\n\tpadding: 7px 8px 10px 8px;\r\n\tbackground: #301e3a;\r\n\tborder-radius: 14px;\r\n\tmargin: 0px 18px 19px 22px;\r\n\r\n\t&-menu{\r\n\t\tposition: relative;\r\n\t\tbackground: #3e294b;\r\n\t\tborder-radius: 18px 0px 0px 18px;\r\n\t\tpadding: 0px 18px 0px 18px;\r\n\r\n\t\t&-title{\r\n\t\t\tposition: relative;\r\n\t\t\tdisplay: flex;\r\n\t\t\tpadding: 14px 0px 0px 0px;\r\n\t\t\tfont-size: 19px;\r\n\r\n\t\t\t&-i{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\twidth: 23px;\r\n\t\t\t\tmargin-right: 4px;\r\n\t\t\t}\r\n\r\n\t\t\t&-text{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\tfont-size: 20px;\r\n\t\t\t\tfont-family: \"Poppins-Regular\";\r\n\t\t\t\tcolor: #efd5ff;\r\n\t\t\t\tletter-spacing: 0.3px;\r\n\t\t\t}\r\n\t\t}\r\n\r\n\r\n\t\t&-heading{\r\n\t\t\tposition: relative;\r\n\t\t\tfont-family: 'Poppins-Medium';\r\n\t\t\tcolor: #efd5ff;\r\n\t\t\tfont-size: 10px;\r\n\t\t\tpadding: 30px 0px 19px 9px;\r\n\t\t}\r\n\t}\r\n\r\n\t&-link{\r\n\t\tposition: relative;\r\n\t\tpadding-left: 10px;\r\n\r\n\t\t&-item{\r\n\t\t\tposition: relative;\r\n\t\t\tdisplay: flex;\r\n\t\t\tcolor: #efd5ff;\r\n\t\t\talign-items: center;\r\n\t\t\tmargin: 0px 0px 7px 0px;\r\n\r\n\t\t\t&-i{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\tfont-family: \"IcoMoon-Free\";\r\n\t\t\t\tfont-size: 15px;\r\n\t\t\t\tcolor: #efd5ff;\r\n\t\t\t\tmargin-right: 7px;\r\n\t\t\t}\r\n\t\t}\r\n\r\n\t\t&-item a{\r\n\t\t\tposition: relative;\r\n\t\t\ttext-decoration: unset !important;\r\n\t\t\tfont-size: 15px;\r\n\t\t\tfont-family: 'Poppins-Regular';\r\n\t\t\tcolor: #efd5ff;\r\n\t\t\tletter-spacing: 0.3px;\r\n\t\t}\r\n\t}\r\n\r\n\t&-elems{\r\n\t\tposition: relative;\r\n\t\twidth: 100%;\r\n\t\tbackground: #201d31;\r\n\t\tborder-radius: 0px 18px 18px 0px;\r\n\t\tmargin-left: 6px;\r\n\t\tpadding: 30px 10px;\r\n\t}\r\n}\r\n\r\n.select-item.routing-link-item:before{\r\n\tcontent: \"\";\r\n\tposition: absolute;\r\n\tleft: -28px;\r\n\twidth: 136%;\r\n\theight: 100%;\r\n\tbackground: #5d426f;\r\n\tpadding: 6px 0px 5px 10px;\r\n\tborder-radius: 0px;\r\n}\r\n"],"sourceRoot":""}]);
+`, "",{"version":3,"sources":["webpack://./assets/styles/app.scss"],"names":[],"mappings":"AAAA;EACC,kBAAkB;EAClB,WAAW;EACX,YAAY;EACZ,mBAAmB;EACnB,0BAA0B,EAAA;;AAG3B;EACC,kBAAkB;EAClB,aAAa;EACb,iBAAiB;EACjB,gBAAgB;EAChB,yBAAyB;EACzB,mBAAmB;EACnB,mBAAmB;EACnB,0BAA0B,EAAA;EAE1B;IACC,kBAAkB;IAClB,mBAAmB;IACnB,gCAAgC;IAChC,0BAA0B,EAAA;IAE1B;MACC,kBAAkB;MAClB,aAAa;MACb,yBAAyB;MACzB,eAAe,EAAA;MAEf;QACC,kBAAkB;QAClB,WAAW;QACX,iBAAiB,EAAA;MAGlB;QACC,kBAAkB;QAClB,eAAe;QACf,8BAA8B;QAC9B,cAAc;QACd,qBAAqB,EAAA;IAKvB;MACC,kBAAkB;MAClB,6BAA6B;MAC7B,cAAc;MACd,eAAe;MACf,0BAA0B,EAAA;EAI5B;IACC,kBAAkB;IAClB,kBAAkB,EAAA;IAElB;MACC,kBAAkB;MAClB,aAAa;MACb,cAAc;MACd,mBAAmB;MACnB,uBAAuB,EAAA;MAEvB;QACC,kBAAkB;QAClB,2BAA2B;QAC3B,eAAe;QACf,cAAc;QACd,iBAAiB,EAAA;IAInB;MACC,kBAAkB;MAClB,iCAAiC;MACjC,eAAe;MACf,8BAA8B;MAC9B,cAAc;MACd,qBAAqB,EAAA;EAIvB;IACC,kBAAkB;IAClB,WAAW;IACX,mBAAmB;IACnB,gCAAgC;IAChC,gBAAgB;IAChB,kBAAkB,EAAA;;AAIpB;EACC,WAAW;EACX,kBAAkB;EAClB,WAAW;EACX,WAAW;EACX,YAAY;EACZ,mBAAmB;EACnB,yBAAyB;EACzB,kBAAkB,EAAA","sourcesContent":[".app{\r\n\tposition: relative;\r\n\twidth: 100%;\r\n\theight: 100%;\r\n\tbackground: #271633;\r\n\tpadding: 10px 0px 10px 0px;\r\n}\r\n\r\n.routing{\r\n\tposition: relative;\r\n\tdisplay: flex;\r\n\tmax-width: 1920px;\r\n\tmin-height: 100%;\r\n\tpadding: 7px 8px 10px 8px;\r\n\tbackground: #301e3a;\r\n\tborder-radius: 14px;\r\n\tmargin: 0px 18px 19px 22px;\r\n\r\n\t&-menu{\r\n\t\tposition: relative;\r\n\t\tbackground: #3e294b;\r\n\t\tborder-radius: 18px 0px 0px 18px;\r\n\t\tpadding: 0px 18px 0px 18px;\r\n\r\n\t\t&-title{\r\n\t\t\tposition: relative;\r\n\t\t\tdisplay: flex;\r\n\t\t\tpadding: 14px 0px 0px 0px;\r\n\t\t\tfont-size: 19px;\r\n\r\n\t\t\t&-i{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\twidth: 23px;\r\n\t\t\t\tmargin-right: 4px;\r\n\t\t\t}\r\n\r\n\t\t\t&-text{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\tfont-size: 20px;\r\n\t\t\t\tfont-family: \"Poppins-Regular\";\r\n\t\t\t\tcolor: #efd5ff;\r\n\t\t\t\tletter-spacing: 0.3px;\r\n\t\t\t}\r\n\t\t}\r\n\r\n\r\n\t\t&-heading{\r\n\t\t\tposition: relative;\r\n\t\t\tfont-family: 'Poppins-Medium';\r\n\t\t\tcolor: #efd5ff;\r\n\t\t\tfont-size: 10px;\r\n\t\t\tpadding: 30px 0px 19px 9px;\r\n\t\t}\r\n\t}\r\n\r\n\t&-link{\r\n\t\tposition: relative;\r\n\t\tpadding-left: 10px;\r\n\r\n\t\t&-item{\r\n\t\t\tposition: relative;\r\n\t\t\tdisplay: flex;\r\n\t\t\tcolor: #efd5ff;\r\n\t\t\talign-items: center;\r\n\t\t\tmargin: 0px 0px 7px 0px;\r\n\r\n\t\t\t&-i{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\tfont-family: \"IcoMoon-Free\";\r\n\t\t\t\tfont-size: 15px;\r\n\t\t\t\tcolor: #efd5ff;\r\n\t\t\t\tmargin-right: 7px;\r\n\t\t\t}\r\n\t\t}\r\n\r\n\t\t&-item a{\r\n\t\t\tposition: relative;\r\n\t\t\ttext-decoration: unset !important;\r\n\t\t\tfont-size: 15px;\r\n\t\t\tfont-family: 'Poppins-Regular';\r\n\t\t\tcolor: #efd5ff;\r\n\t\t\tletter-spacing: 0.3px;\r\n\t\t}\r\n\t}\r\n\r\n\t&-elems{\r\n\t\tposition: relative;\r\n\t\twidth: 100%;\r\n\t\tbackground: #201d31;\r\n\t\tborder-radius: 0px 18px 18px 0px;\r\n\t\tmargin-left: 6px;\r\n\t\tpadding: 30px 10px;\r\n\t}\r\n}\r\n\r\n.select-item.routing-link-item:before{\r\n\tcontent: \"\";\r\n\tposition: absolute;\r\n\tleft: -28px;\r\n\twidth: 136%;\r\n\theight: 100%;\r\n\tbackground: #5d426f;\r\n\tpadding: 6px 0px 5px 10px;\r\n\tborder-radius: 0px;\r\n}\r\n"],"sourceRoot":""}]);
 // Exports
 /* harmony default export */ const __WEBPACK_DEFAULT_EXPORT__ = (___CSS_LOADER_EXPORT___);
 
@@ -5970,12 +7178,18 @@ var ___CSS_LOADER_URL_IMPORT_1___ = new URL(/* asset import */ __webpack_require
 var ___CSS_LOADER_URL_IMPORT_2___ = new URL(/* asset import */ __webpack_require__(/*! ../../../assets/fonts/Poppins-Regular.ttf */ "./assets/fonts/Poppins-Regular.ttf"), __webpack_require__.b);
 var ___CSS_LOADER_URL_IMPORT_3___ = new URL(/* asset import */ __webpack_require__(/*! ../../../assets/fonts/RobotoMono-Regular.ttf */ "./assets/fonts/RobotoMono-Regular.ttf"), __webpack_require__.b);
 var ___CSS_LOADER_URL_IMPORT_4___ = new URL(/* asset import */ __webpack_require__(/*! ../../../assets/fonts/IcoMoon-Free.ttf */ "./assets/fonts/IcoMoon-Free.ttf"), __webpack_require__.b);
+var ___CSS_LOADER_URL_IMPORT_5___ = new URL(/* asset import */ __webpack_require__(/*! ../../../assets/fonts/IBMPlexSans-Light.ttf */ "./assets/fonts/IBMPlexSans-Light.ttf"), __webpack_require__.b);
+var ___CSS_LOADER_URL_IMPORT_6___ = new URL(/* asset import */ __webpack_require__(/*! ../../../assets/fonts/IBMPlexSans-Medium.ttf */ "./assets/fonts/IBMPlexSans-Medium.ttf"), __webpack_require__.b);
+var ___CSS_LOADER_URL_IMPORT_7___ = new URL(/* asset import */ __webpack_require__(/*! ../../../assets/fonts/IBMPlexSans-Regular.ttf */ "./assets/fonts/IBMPlexSans-Regular.ttf"), __webpack_require__.b);
 var ___CSS_LOADER_EXPORT___ = _node_modules_css_loader_dist_runtime_api_js__WEBPACK_IMPORTED_MODULE_1___default()((_node_modules_css_loader_dist_runtime_sourceMaps_js__WEBPACK_IMPORTED_MODULE_0___default()));
 var ___CSS_LOADER_URL_REPLACEMENT_0___ = _node_modules_css_loader_dist_runtime_getUrl_js__WEBPACK_IMPORTED_MODULE_2___default()(___CSS_LOADER_URL_IMPORT_0___);
 var ___CSS_LOADER_URL_REPLACEMENT_1___ = _node_modules_css_loader_dist_runtime_getUrl_js__WEBPACK_IMPORTED_MODULE_2___default()(___CSS_LOADER_URL_IMPORT_1___);
 var ___CSS_LOADER_URL_REPLACEMENT_2___ = _node_modules_css_loader_dist_runtime_getUrl_js__WEBPACK_IMPORTED_MODULE_2___default()(___CSS_LOADER_URL_IMPORT_2___);
 var ___CSS_LOADER_URL_REPLACEMENT_3___ = _node_modules_css_loader_dist_runtime_getUrl_js__WEBPACK_IMPORTED_MODULE_2___default()(___CSS_LOADER_URL_IMPORT_3___);
 var ___CSS_LOADER_URL_REPLACEMENT_4___ = _node_modules_css_loader_dist_runtime_getUrl_js__WEBPACK_IMPORTED_MODULE_2___default()(___CSS_LOADER_URL_IMPORT_4___);
+var ___CSS_LOADER_URL_REPLACEMENT_5___ = _node_modules_css_loader_dist_runtime_getUrl_js__WEBPACK_IMPORTED_MODULE_2___default()(___CSS_LOADER_URL_IMPORT_5___);
+var ___CSS_LOADER_URL_REPLACEMENT_6___ = _node_modules_css_loader_dist_runtime_getUrl_js__WEBPACK_IMPORTED_MODULE_2___default()(___CSS_LOADER_URL_IMPORT_6___);
+var ___CSS_LOADER_URL_REPLACEMENT_7___ = _node_modules_css_loader_dist_runtime_getUrl_js__WEBPACK_IMPORTED_MODULE_2___default()(___CSS_LOADER_URL_IMPORT_7___);
 // Module
 ___CSS_LOADER_EXPORT___.push([module.id, `@font-face {
   font-family: 'Roboto';
@@ -6001,7 +7215,22 @@ ___CSS_LOADER_EXPORT___.push([module.id, `@font-face {
   font-family: 'IcoMoon-Free';
   src: url(${___CSS_LOADER_URL_REPLACEMENT_4___});
   font-weight: normal; }
-`, "",{"version":3,"sources":["webpack://./assets/styles/fonts.scss"],"names":[],"mappings":"AAAA;EACC,qBAAqB;EACrB,4CAA6C;EAC7C,mBAAmB,EAAA;;AAEpB;EACC,6BAA6B;EAC7B,4CAA6C;EAC7C,mBAAmB,EAAA;;AAEpB;EACC,8BAA8B;EAC9B,4CAA8C;EAC9C,mBAAmB,EAAA;;AAEpB;EACC,iCAAiC;EACjC,4CAAiD;EACjD,mBAAmB,EAAA;;AAEpB;EACC,2BAA2B;EAC3B,4CAA2C;EAC3C,mBAAmB,EAAA","sourcesContent":["@font-face {\r\n\tfont-family: 'Roboto';\r\n\tsrc: url( '/assets/fonts/Roboto-Regular.ttf');\r\n\tfont-weight: normal;\r\n}\r\n@font-face {\r\n\tfont-family: 'Poppins-Medium';\r\n\tsrc: url( '/assets/fonts/Poppins-Medium.ttf');\r\n\tfont-weight: normal;\r\n}\r\n@font-face {\r\n\tfont-family: 'Poppins-Regular';\r\n\tsrc: url( '/assets/fonts/Poppins-Regular.ttf');\r\n\tfont-weight: normal;\r\n}\r\n@font-face {\r\n\tfont-family: 'RobotoMono-Regular';\r\n\tsrc: url( '/assets/fonts/RobotoMono-Regular.ttf');\r\n\tfont-weight: normal;\r\n}\r\n@font-face {\r\n\tfont-family: 'IcoMoon-Free';\r\n\tsrc: url( '/assets/fonts/IcoMoon-Free.ttf');\r\n\tfont-weight: normal;\r\n}"],"sourceRoot":""}]);
+
+@font-face {
+  font-family: 'IBMPlexSans-Light';
+  src: url(${___CSS_LOADER_URL_REPLACEMENT_5___});
+  font-weight: normal; }
+
+@font-face {
+  font-family: 'IBMPlexSans-Medium';
+  src: url(${___CSS_LOADER_URL_REPLACEMENT_6___});
+  font-weight: normal; }
+
+@font-face {
+  font-family: 'IBMPlexSans-Regular';
+  src: url(${___CSS_LOADER_URL_REPLACEMENT_7___});
+  font-weight: normal; }
+`, "",{"version":3,"sources":["webpack://./assets/styles/fonts.scss"],"names":[],"mappings":"AAAA;EACC,qBAAqB;EACrB,4CAA6C;EAC7C,mBAAmB,EAAA;;AAEpB;EACC,6BAA6B;EAC7B,4CAA6C;EAC7C,mBAAmB,EAAA;;AAEpB;EACC,8BAA8B;EAC9B,4CAA8C;EAC9C,mBAAmB,EAAA;;AAEpB;EACC,iCAAiC;EACjC,4CAAiD;EACjD,mBAAmB,EAAA;;AAEpB;EACC,2BAA2B;EAC3B,4CAA2C;EAC3C,mBAAmB,EAAA;;AAEpB;EACC,gCAAgC;EAChC,4CAAgD;EAChD,mBAAmB,EAAA;;AAEpB;EACC,iCAAiC;EACjC,4CAAiD;EACjD,mBAAmB,EAAA;;AAGpB;EACC,kCAAkC;EAClC,4CAAkD;EAClD,mBAAmB,EAAA","sourcesContent":["@font-face {\r\n\tfont-family: 'Roboto';\r\n\tsrc: url( '/assets/fonts/Roboto-Regular.ttf');\r\n\tfont-weight: normal;\r\n}\r\n@font-face {\r\n\tfont-family: 'Poppins-Medium';\r\n\tsrc: url( '/assets/fonts/Poppins-Medium.ttf');\r\n\tfont-weight: normal;\r\n}\r\n@font-face {\r\n\tfont-family: 'Poppins-Regular';\r\n\tsrc: url( '/assets/fonts/Poppins-Regular.ttf');\r\n\tfont-weight: normal;\r\n}\r\n@font-face {\r\n\tfont-family: 'RobotoMono-Regular';\r\n\tsrc: url( '/assets/fonts/RobotoMono-Regular.ttf');\r\n\tfont-weight: normal;\r\n}\r\n@font-face {\r\n\tfont-family: 'IcoMoon-Free';\r\n\tsrc: url( '/assets/fonts/IcoMoon-Free.ttf');\r\n\tfont-weight: normal;\r\n}\r\n@font-face {\r\n\tfont-family: 'IBMPlexSans-Light';\r\n\tsrc: url( '/assets/fonts/IBMPlexSans-Light.ttf');\r\n\tfont-weight: normal;\r\n}\r\n@font-face {\r\n\tfont-family: 'IBMPlexSans-Medium';\r\n\tsrc: url( '/assets/fonts/IBMPlexSans-Medium.ttf');\r\n\tfont-weight: normal;\r\n}\r\n\r\n@font-face {\r\n\tfont-family: 'IBMPlexSans-Regular';\r\n\tsrc: url( '/assets/fonts/IBMPlexSans-Regular.ttf');\r\n\tfont-weight: normal;\r\n}\r\n\r\n"],"sourceRoot":""}]);
 // Exports
 /* harmony default export */ const __WEBPACK_DEFAULT_EXPORT__ = (___CSS_LOADER_EXPORT___);
 
@@ -6028,8 +7257,9 @@ __webpack_require__.r(__webpack_exports__);
 var ___CSS_LOADER_EXPORT___ = _node_modules_css_loader_dist_runtime_api_js__WEBPACK_IMPORTED_MODULE_1___default()((_node_modules_css_loader_dist_runtime_sourceMaps_js__WEBPACK_IMPORTED_MODULE_0___default()));
 // Module
 ___CSS_LOADER_EXPORT___.push([module.id, `html, body {
-  height: 100%;
-  width: 100%; }
+  min-height: 100%;
+  width: 100%;
+  background: #271633; }
 
 body {
   scroll-behavior: auto;
@@ -6040,6 +7270,17 @@ body {
   box-sizing: border-box;
   margin: 0px;
   padding: 0px; }
+
+html::-webkit-scrollbar {
+  width: 6px;
+  cursor: pointer; }
+
+html::-webkit-scrollbar-track {
+  border-radius: 10px; }
+
+html::-webkit-scrollbar-thumb {
+  background: #202d4d;
+  border-radius: 10px; }
 
 #main {
   position: relative;
@@ -6070,7 +7311,7 @@ body {
 .flex-column {
   display: flex !important;
   flex-direction: column; }
-`, "",{"version":3,"sources":["webpack://./assets/styles/main.scss"],"names":[],"mappings":"AACA;EACC,YAAY;EACZ,WAAU,EAAA;;AAGX;EACC,qBAAqB;EACrB,oBAAoB,EAAA;;AAIrB;EACC,mBAAmB;EACnB,sBAAsB;EACtB,WAAW;EACX,YAAY,EAAA;;AAGb;EACC,kBAAkB;EAClB,WAAW;EACX,YAAY,EAAA;;AAGb;EACC,wBAAuB,EAAA;;AAGxB;EACC,aAAa,EAAA;;AAGd;EACC,wBAAuB,EAAA;;AAExB;EACC,yBAAwB,EAAA;;AAGzB;EACE,aAAa,EAAA;;AAGf;EACC,4BAA2B,EAAA;;AAG5B;EACC,yBAAwB,EAAA;;AAGzB;EACC,wBAAuB;EACvB,sBAAsB,EAAA","sourcesContent":["\r\nhtml, body {\r\n\theight: 100%;\r\n\twidth:100%;\r\n}\r\n\r\nbody{\r\n\tscroll-behavior: auto;\r\n\tfont-weight: inherit;\r\n}\r\n\r\n\r\n* {\r\n\tborder-spacing: 0px;\r\n\tbox-sizing: border-box;\r\n\tmargin: 0px;\r\n\tpadding: 0px;\r\n}\r\n\r\n#main{\r\n\tposition: relative;\r\n\twidth: 100%;\r\n\theight: 100%;\r\n}\r\n\r\n.hidden{\r\n\tdisplay: none!important;\r\n}\r\n\r\n.hidden.invisible{\r\n\tdisplay: none;\r\n}\r\n\r\n.flex{\r\n\tdisplay: flex!important;\r\n}\r\n.block{\r\n\tdisplay: block!important;\r\n}\r\n\r\n.flex.invisible{\r\n\t display: flex;\r\n }\r\n\r\n.background-unset{\r\n\tbackground: unset!important;\r\n}\r\n\r\n.block{\r\n\tdisplay: block!important;\r\n}\r\n\r\n.flex-column{\r\n\tdisplay: flex!important;\r\n\tflex-direction: column;\r\n}"],"sourceRoot":""}]);
+`, "",{"version":3,"sources":["webpack://./assets/styles/main.scss"],"names":[],"mappings":"AACA;EACC,gBAAgB;EAChB,WAAU;EACV,mBAAmB,EAAA;;AAGpB;EACC,qBAAqB;EACrB,oBAAoB,EAAA;;AAGrB;EACC,mBAAmB;EACnB,sBAAsB;EACtB,WAAW;EACX,YAAY,EAAA;;AAGb;EACC,UAAU;EACV,eAAe,EAAA;;AAEhB;EACC,mBAAmB,EAAA;;AAEpB;EACC,mBAAmB;EACnB,mBAAmB,EAAA;;AAGpB;EACC,kBAAkB;EAClB,WAAW;EACX,YAAY,EAAA;;AAGb;EACC,wBAAuB,EAAA;;AAGxB;EACC,aAAa,EAAA;;AAGd;EACC,wBAAuB,EAAA;;AAExB;EACC,yBAAwB,EAAA;;AAGzB;EACE,aAAa,EAAA;;AAGf;EACC,4BAA2B,EAAA;;AAG5B;EACC,yBAAwB,EAAA;;AAGzB;EACC,wBAAuB;EACvB,sBAAsB,EAAA","sourcesContent":["\r\nhtml, body {\r\n\tmin-height: 100%;\r\n\twidth:100%;\r\n\tbackground: #271633;\r\n}\r\n\r\nbody{\r\n\tscroll-behavior: auto;\r\n\tfont-weight: inherit;\r\n}\r\n\r\n* {\r\n\tborder-spacing: 0px;\r\n\tbox-sizing: border-box;\r\n\tmargin: 0px;\r\n\tpadding: 0px;\r\n}\r\n\r\nhtml::-webkit-scrollbar {\r\n\twidth: 6px;\r\n\tcursor: pointer;\r\n}\r\nhtml::-webkit-scrollbar-track {\r\n\tborder-radius: 10px;\r\n}\r\nhtml::-webkit-scrollbar-thumb {\r\n\tbackground: #202d4d;\r\n\tborder-radius: 10px;\r\n}\r\n\r\n#main{\r\n\tposition: relative;\r\n\twidth: 100%;\r\n\theight: 100%;\r\n}\r\n\r\n.hidden{\r\n\tdisplay: none!important;\r\n}\r\n\r\n.hidden.invisible{\r\n\tdisplay: none;\r\n}\r\n\r\n.flex{\r\n\tdisplay: flex!important;\r\n}\r\n.block{\r\n\tdisplay: block!important;\r\n}\r\n\r\n.flex.invisible{\r\n\t display: flex;\r\n }\r\n\r\n.background-unset{\r\n\tbackground: unset!important;\r\n}\r\n\r\n.block{\r\n\tdisplay: block!important;\r\n}\r\n\r\n.flex-column{\r\n\tdisplay: flex!important;\r\n\tflex-direction: column;\r\n}"],"sourceRoot":""}]);
 // Exports
 /* harmony default export */ const __WEBPACK_DEFAULT_EXPORT__ = (___CSS_LOADER_EXPORT___);
 
@@ -6413,6 +7654,444 @@ ___CSS_LOADER_EXPORT___.push([module.id, `.calc2 {
     fill:#d9d9de
  */
 `, "",{"version":3,"sources":["webpack://./source/components/Calc2/styles/calc2.scss"],"names":[],"mappings":"AAAA;EACC,kBAAkB;EAClB,gBAAgB;EAChB,0BAA0B;EAC1B,mBAAmB;EACnB,iCAAiC;EACjC,iBAAiB;EACjB,mBAAmB;EACnB,iCAAiC;EACjC,2BAA2B,EAAA;EAE3B;IACC,8BAA4B;IAC5B,gDAAgD,EAAA;EAEjD;IACC,8BAA6B,EAAA;EAE9B;IACC,kBAAkB;IAClB,qBAAqB;IACrB,WAAU;IACV,OAAO;IACP,QAAQ;IACR,MAAM;IACN,SAAS;IACT,6BAA6B;IAC7B,4BAA4B;IAC5B,kBAAkB;IAClB,iBAAiB;IACjB,UAAU;IACV,gBAAgB,EAAA;IAEhB;MACC,kBAAkB;MAClB,WAAW;MACX,SAAS;MACT,WAAW;MACX,YAAY;MACZ,eAAe;MACf,UAAU,EAAA;IAGX;MACC,WAAW;MACX,YAAY;MACZ,aAAY,EAAA;IAGb;MACC,8BAA4B,EAAA;IAG7B;MACC,kBAAkB;MAClB,aAAa;MACb,sBAAsB;MACtB,2BAA2B;MAC3B,gBAAgB;MAChB,YAAY,EAAA;MAEZ;QACC,kBAAkB;QAClB,sBAAsB;QACtB,cAAc;QACd,wBAAwB;QACxB,mBAAkB;QAClB,kBAAkB;QAClB,mBAAmB;QACnB,eAAe,EAAA;IAGjB;MACC,mBAAmB;MACnB,yBAAyB;MACzB,gCAAgC,EAAA;IAEjC;MACC,UAAU,EAAA;IAEX;MACC,mBAAmB,EAAA;IAEpB;MACC,qBAAqB;MACrB,mBAAmB,EAAA;IAEpB;MACC,kCAAkC,EAAA;EAIpC;IACC,qBAAqB,EAAA;EAGtB;IACC,YAAY;IACZ,gCAAgC;IAChC,+BAA+B,EAAA;EAEhC;IACC,WAAU,EAAA;EAEX;IACC,kBAAkB;IAClB,SAAS;IACT,QAAQ;IACR,UAAU;IACV,WAAW;IACX,YAAY;IACZ,mBAAmB;IACnB,mBAAmB;IACnB,aAAa;IACb,uBAAuB;IACvB,mCAAmC;IACnC,eAAe,EAAA;EAGhB;IACC,kBAAkB;IAClB,aAAa;IACb,uBAAuB;IACvB,wBAAwB,EAAA;EAEzB;IACC,kBAAkB;IAClB,UAAU,EAAA;EAEX;IACC,kBAAkB;IAClB,aAAa;IACb,mBAAmB;IACnB,mBAAmB;IACnB,wBAAwB;IACxB,mBAAmB;IACnB,WAAW,EAAA;IAEX;MACC,kBAAkB;MAClB,WAAW;MACX,YAAY;MACZ,mBAAmB;MACnB,mBAAkB;MAClB,UAAU;MACV,gBAAgB;MAChB,eAAe,EAAA;IAEhB;MACC,8BAA8B,EAAA;IAG/B;MACC,kBAAkB;MAClB,WAAW;MACX,YAAY;MACZ,4BAA4B;MAC5B,wBAAwB;MACxB,aAAa;MACb,aAAa;MACb,kBAAkB;MAClB,eAAe;MACf,gBAAgB,EAAA;IAEjB;MACC,aAAY,EAAA;IAGb;MACC,kBAAkB;MAClB,WAAW;MACX,YAAY;MACZ,4BAA4B;MAC5B,wBAAwB;MACxB,UAAU;MACV,eAAe,EAAA;EAIjB;IACC,sBAAoB,EAAA;EAGrB;IACC,kBAAkB;IAClB,UAAU;IACV,eAAe;IACf,uBAAuB;IACvB,aAAa;IACb,yBAAyB;IACzB,UAAU,EAAA;EAEX;IACC,WAAW;IACX,aAAY,EAAA;EAEb;IACC,8BAA6B,EAAA;EAI9B;IACC,kBAAkB;IAClB,WAAW;IACX,aAAa;IACb,aAAa;IACb,sBAAsB;IACtB,yBAAyB;IACzB,mBAAmB,EAAA;EAGpB;IACC,kBAAkB;IAClB,aAAa;IACb,sBAAsB;IACtB,gBAAgB;IAChB,6BAA6B;IAC7B,eAAe;IACf,eAAe;IACf,iBAAiB;IACjB,sBAAsB,EAAA;IAEtB;MACC,kBAAkB;MAClB,eAAe;MACf,cAAc;MACd,kBAAkB,EAAA;IAGnB;MACC,kBAAkB;MAClB,cAAc;MACd,eAAe;MACf,aAAa;MACb,8BAA8B;MAC9B,WAAW;MACX,gBAAgB;MAChB,sBAAsB;MACtB,eAAe,EAAA;MAGf;QACC,kBAAkB;QAClB,cAAc;QACd,iBAAiB,EAAA;MAGlB;QACC,kBAAkB;QAClB,cAAc,EAAA;EAKjB;IACC,kBAAkB;IAClB,+BAA+B;IAC/B,gCAAgC;IAChC,aAAa;IACb,sBAAsB;IACtB,eAAe;IACf,yBAAyB;IACzB,gBAAgB,EAAA;IAEhB;MACC,kBAAkB;MAClB,aAAa;MACb,8BAA8B,EAAA;MAE9B;QACC,kBAAkB;QAClB,cAAc;QACd,eAAe;QACf,eAAe;QACf,WAAW;QACX,YAAY;QACZ,mBAAmB;QACnB,mBAAmB;QACnB,aAAa;QACb,uBAAuB;QACvB,mBAAmB;QACnB,gCAAgC,EAAA;MAGjC;QACC,gBAAgB,EAAA;MAEjB;QACC,gBAAgB,EAAA;IAIlB;MACC,kBAAkB;MAClB,aAAa;MACb,2BAA2B;MAC3B,yBAAyB,EAAA;IAG1B;MACC,kBAAkB;MAClB,WAAW;MACX,aAAa;MACb,aAAa;MACb,kBAAkB;MAClB,mBAAmB;MACnB,cAAc;MACd,eAAe,EAAA;MAEf;QACC,kBAAkB;QAClB,WAAW;QACX,kBAAkB;QAClB,eAAe,EAAA;EAKlB;IACC,kBAAkB;IAClB,aAAa;IACb,yBAAyB;IACzB,eAAe,EAAA;IAEf;MACC,aAAa;MACb,kBAAkB;MAClB,cAAc;MACd,eAAe;MACf,eAAe;MACf,WAAW;MACX,YAAY;MACZ,mBAAmB;MACnB,mBAAmB;MACnB,uBAAuB;MACvB,mBAAmB,EAAA;EAIrB;IACC,kBAAkB;IAClB,aAAa;IACb,2BAA2B;IAC3B,eAAe;IACf,8BAA8B,EAAA;IAE9B;MACC,kBAAkB;MAClB,cAAc;MACd,eAAe;MACf,eAAe;MACf,WAAW;MACX,YAAY;MACZ,kBAAkB;MAClB,aAAa;MACb,mBAAmB;MACnB,uBAAuB;MACvB,mBAAmB;MACnB,mBAAmB;MACnB,wBACD,EAAA;EAGD;IACC,yBAAyB,EAAA;EAE1B;IACC,yBAAwB;IACxB,mBAAmB,EAAA;EAEpB;IACC,yBAAwB;IACxB,mBAAmB,EAAA;EAEpB;IACC,yBAAwB;IACxB,mBAAmB,EAAA;EAEpB;IACC,yBAAwB;IACxB,mBAAmB,EAAA;EAEpB;IACC,yBAAyB,EAAA;EAE1B;IACC,yBAAyB,EAAA;;AAG3B;EACC,yDAAmD,EAAA;;AAEpD;;;;;;EAlFE","sourcesContent":[".calc2{\r\n\tposition: relative;\r\n\tmax-width: 300px;\r\n\tmargin: 9px auto auto auto;\r\n\tborder-radius: 20px;\r\n\tbox-shadow: 0px 0px 8px 2px black;\r\n\tuser-select: none;\r\n\tbackground: #13141A;\r\n\tfont-family: \"RobotoMono-Regular\";\r\n\tpadding: 0px 12px 10px 12px;\r\n\r\n\t&-light{\r\n\t\tbackground:#ffffff!important;\r\n\t\tbox-shadow: 0px 0px 0px 6px #d9cbcb7a !important;\r\n\t}\r\n\t&-block-light-select{\r\n\t\tbackground: #fbf5f5!important;\r\n\t}\r\n\t&-memory{\r\n\t\tposition: absolute;\r\n\t\tbackground: #000000f0;\r\n\t\twidth:100%;\r\n\t\tleft: 0;\r\n\t\tright: 0;\r\n\t\ttop: 0;\r\n\t\theight: 0;\r\n\t\tborder-top-right-radius: 20px;\r\n\t\tborder-top-left-radius: 20px;\r\n\t\toverflow-y: hidden;\r\n\t\toverflow-x: unset;\r\n\t\tz-index: 2;\r\n\t\ttransition: 0.3s;\r\n\r\n\t\t&-clear{\r\n\t\t\tposition: absolute;\r\n\t\t\tright: 15px;\r\n\t\t\ttop: 11px;\r\n\t\t\twidth: 20px;\r\n\t\t\theight: 20px;\r\n\t\t\tcursor: pointer;\r\n\t\t\tz-index: 2;\r\n\t\t}\r\n\r\n\t\t&-clear svg{\r\n\t\t\twidth: 22px;\r\n\t\t\theight: 22px;\r\n\t\t\tfill:#d9d9de;\r\n\t\t}\r\n\r\n\t\t&-item-select{\r\n\t\t\tbackground:#332E2D!important;\r\n\t\t}\r\n\r\n\t\t&-block{\r\n\t\t\tposition: relative;\r\n\t\t\tdisplay: flex;\r\n\t\t\tflex-direction: column;\r\n\t\t\tpadding: 47px 10px 0px 10px;\r\n\t\t\toverflow-y: auto;\r\n\t\t\theight: 100%;\r\n\r\n\t\t\t&-item{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\tword-break: break-word;\r\n\t\t\t\tcolor: #e2e5ef;\r\n\t\t\t\tpadding: 5px 5px 6px 4px;\r\n\t\t\t\tbackground:#100f0f;\r\n\t\t\t\tborder-radius: 5px;\r\n\t\t\t\tmargin-bottom: 10px;\r\n\t\t\t\tcursor: pointer;\r\n\t\t\t}\r\n\t\t}\r\n\t\t&-block-light{\r\n\t\t\tbackground: #e5e5e5;\r\n\t\t\tcolor: #13141A !important;\r\n\t\t\ttext-shadow: 0px 0px 0px #13141A;\r\n\t\t}\r\n\t\t&-block::-webkit-scrollbar {\r\n\t\t\twidth: 7px;\r\n\t\t}\r\n\t\t&-block::-webkit-scrollbar-track {\r\n\t\t\tborder-radius: 10px;\r\n\t\t}\r\n\t\t&-block::-webkit-scrollbar-thumb {\r\n\t\t\tbackground: #3b3e41b3;\r\n\t\t\tborder-radius: 10px;\r\n\t\t}\r\n\t\t&-block::-webkit-scrollbar-thumb:hover {\r\n\t\t\tbackground: rgba(47, 50, 53, 0.86);\r\n\t\t}\r\n\t}\r\n\r\n\t&-memory-light{\r\n\t\tbackground: #dbdbdbf0;\r\n\t}\r\n\r\n\t&-memory-height{\r\n\t\theight: 100%;\r\n\t\tborder-bottom-right-radius: 20px;\r\n\t\tborder-bottom-left-radius: 20px;\r\n\t }\r\n\t&-memory-height-zero{\r\n\t\theight:0px;\r\n\t}\r\n\t&-swipe{\r\n\t\tposition: absolute;\r\n\t\tleft: 8px;\r\n\t\ttop: 7px;\r\n\t\tz-index: 1;\r\n\t\twidth: 19px;\r\n\t\theight: 19px;\r\n\t\tbackground: #3d3b3b;\r\n\t\tborder-radius: 15px;\r\n\t\tdisplay: flex;\r\n\t\tjustify-content: center;\r\n\t\tbox-shadow: 0px 0px 2px 1px #635c5c;\r\n\t\tcursor: pointer;\r\n\t}\r\n\r\n\t&-theme-wrap{\r\n\t\tposition: relative;\r\n\t\tdisplay: flex;\r\n\t\tjustify-content: center;\r\n\t\tpadding: 6px 0px 0px 0px;\r\n\t}\r\n\t&-theme-block{\r\n\t\tposition: relative;\r\n\t\twidth: 60%;\r\n\t}\r\n\t&-theme{\r\n\t\tposition: relative;\r\n\t\tdisplay: flex;\r\n\t\talign-items: center;\r\n\t\tbackground: #1F1F27;\r\n\t\tpadding: 2px 8px 2px 3px;\r\n\t\tborder-radius: 20px;\r\n\t\twidth: 58px;\r\n\r\n\t\t&-swipe{\r\n\t\t\tposition: absolute;\r\n\t\t\twidth: 27px;\r\n\t\t\theight: 27px;\r\n\t\t\tborder-radius: 100%;\r\n\t\t\tbackground:#13141a;\r\n\t\t\tz-index: 0;\r\n\t\t\ttransition: 0.5s;\r\n\t\t\tcursor: pointer;\r\n\t\t}\r\n\t\t&-swipe-light{\r\n\t\t\tbackground: #efe9ff !important;\r\n\t\t}\r\n\r\n\t\t&-sun{\r\n\t\t\tposition: relative;\r\n\t\t\twidth: 16px;\r\n\t\t\theight: 16px;\r\n\t\t\tbackground-repeat: no-repeat;\r\n\t\t\tbackground-size: contain;\r\n\t\t\tfill: #a0a1ac;\r\n\t\t\tdisplay: flex;\r\n\t\t\talign-self: center;\r\n\t\t\tcursor: pointer;\r\n\t\t\tmargin-left: 4px;\r\n\t\t}\r\n\t\t&-sun-light{\r\n\t\t\tfill:#A66CFF;\r\n\t\t}\r\n\r\n\t\t&-moon{\r\n\t\t\tposition: relative;\r\n\t\t\twidth: 27px;\r\n\t\t\theight: 27px;\r\n\t\t\tbackground-repeat: no-repeat;\r\n\t\t\tbackground-size: contain;\r\n\t\t\tz-index: 1;\r\n\t\t\tcursor: pointer;\r\n\t\t}\r\n\t}\r\n\r\n\t&-theme-fill-light {\r\n\t\tfill:white!important;\r\n\t}\r\n\r\n\t&-theme-memory{\r\n\t\tposition: relative;\r\n\t\twidth: 40%;\r\n\t\tcursor: pointer;\r\n\t\ttransform: scale(-1, 1);\r\n\t\tdisplay: flex;\r\n\t\tjustify-content: flex-end;\r\n\t\tz-index: 2;\r\n\t}\r\n\t&-theme-memory svg{\r\n\t\twidth: 22px;\r\n\t\tfill:#d9d9de;\r\n\t}\r\n\t&-theme-light{\r\n\t\tbackground: #cacadb!important;\r\n\t}\r\n\r\n\r\n\t&-inp-wrap{\r\n\t\tposition: relative;\r\n\t\twidth: 100%;\r\n\t\theight: 249px;\r\n\t\tdisplay: flex;\r\n\t\tflex-direction: column;\r\n\t\tjustify-content: flex-end;\r\n\t\tmargin-bottom: 30px;\r\n\t}\r\n\r\n\t&-inp{\r\n\t\tposition: relative;\r\n\t\tdisplay: flex;\r\n\t\tflex-direction: column;\r\n\t\talign-items: end;\r\n\t\tjustify-content: space-around;\r\n\t\tflex-wrap: wrap;\r\n\t\toverflow: unset;\r\n\t\tuser-select: text;\r\n\t\tword-break: break-word;\r\n\r\n\t\t&-val{\r\n\t\t\tposition: relative;\r\n\t\t\tfont-size: 19px;\r\n\t\t\tcolor: #636363;\r\n\t\t\tmargin-bottom: 5px;\r\n\t\t}\r\n\r\n\t\t&-block{\r\n\t\t\tposition: relative;\r\n\t\t\tcolor: #f3fcff;\r\n\t\t\tfont-size: 38px;\r\n\t\t\tdisplay: flex;\r\n\t\t\tjustify-content: space-between;\r\n\t\t\twidth: 100%;\r\n\t\t\toverflow: hidden;\r\n\t\t\tword-break: break-word;\r\n\t\t\ttext-align: end;\r\n\r\n\r\n\t\t\t&-equally{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\tcolor: #636363;\r\n\t\t\t\tfont-family: auto;\r\n\t\t\t}\r\n\r\n\t\t\t&-result{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\tcolor: #f1efff;\r\n\t\t\t}\r\n\t\t}\r\n\t}\r\n\r\n\t&-result{\r\n\t\tposition: relative;\r\n\t\tborder-bottom-left-radius: 20px;\r\n\t\tborder-bottom-right-radius: 20px;\r\n\t\tdisplay: flex;\r\n\t\tflex-direction: column;\r\n\t\tflex-wrap: wrap;\r\n\t\tpadding: 0px 0px 10px 0px;\r\n\t\tmin-width: 220px;\r\n\r\n\t\t&-high{\r\n\t\t\tposition: relative;\r\n\t\t\tdisplay: flex;\r\n\t\t\tjustify-content: space-between;\r\n\r\n\t\t\t&-item{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\tcolor: #A66CFF;\r\n\t\t\t\tcursor: pointer;\r\n\t\t\t\tfont-size: 22px;\r\n\t\t\t\twidth: 50px;\r\n\t\t\t\theight: 50px;\r\n\t\t\t\tborder-radius: 100%;\r\n\t\t\t\tbackground: #1f1f27;\r\n\t\t\t\tdisplay: flex;\r\n\t\t\t\tjustify-content: center;\r\n\t\t\t\talign-items: center;\r\n\t\t\t\ttext-shadow: 0px 0px 0px #A66CFF;\r\n\t\t\t}\r\n\r\n\t\t\t&-item:nth-child(2){\r\n\t\t\t\tmargin-left: 6px;\r\n\t\t\t}\r\n\t\t\t&-item:nth-child(3){\r\n\t\t\t\tmargin-left: 5px;\r\n\t\t\t}\r\n\t\t}\r\n\r\n\t\t&-low{\r\n\t\t\tposition: relative;\r\n\t\t\tdisplay: flex;\r\n\t\t\tflex-direction: row-reverse;\r\n\t\t\tpadding: 12px 0px 0px 0px;\r\n\t\t}\r\n\r\n\t\t&-equally{\r\n\t\t\tposition: relative;\r\n\t\t\twidth: 100%;\r\n\t\t\tdisplay: flex;\r\n\t\t\theight: unset;\r\n\t\t\tborder-radius: 5px;\r\n\t\t\tbackground: #181921;\r\n\t\t\tcolor: #A66CFF;\r\n\t\t\tcursor: pointer;\r\n\r\n\t\t\t&-item{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\twidth: 100%;\r\n\t\t\t\ttext-align: center;\r\n\t\t\t\tfont-size: 32px;\r\n\t\t\t}\r\n\t\t}\r\n\t}\r\n\r\n\t&-operator{\r\n\t\tposition: relative;\r\n\t\tdisplay: flex;\r\n\t\tjustify-content: flex-end;\r\n\t\tflex-wrap: wrap;\r\n\r\n\t\t&-item{\r\n\t\t\tdisplay: flex;\r\n\t\t\tposition: relative;\r\n\t\t\tcolor: #A66CFF;\r\n\t\t\tcursor: pointer;\r\n\t\t\tfont-size: 32px;\r\n\t\t\twidth: 50px;\r\n\t\t\theight: 50px;\r\n\t\t\tborder-radius: 100%;\r\n\t\t\tbackground: #1f1f27;\r\n\t\t\tjustify-content: center;\r\n\t\t\talign-items: center;\r\n\t\t}\r\n\t}\r\n\r\n\t&-btn{\r\n\t\tposition: relative;\r\n\t\tdisplay: flex;\r\n\t\tflex-direction: row-reverse;\r\n\t\tflex-wrap: wrap;\r\n\t\tjustify-content: space-between;\r\n\r\n\t\t&-item{\r\n\t\t\tposition: relative;\r\n\t\t\tcolor: #d7e7eb;\r\n\t\t\tcursor: pointer;\r\n\t\t\tfont-size: 29px;\r\n\t\t\twidth: 50px;\r\n\t\t\theight: 50px;\r\n\t\t\ttext-align: center;\r\n\t\t\tdisplay: flex;\r\n\t\t\talign-items: center;\r\n\t\t\tjustify-content: center;\r\n\t\t\tborder-radius: 100%;\r\n\t\t\tbackground: #1f1f27;\r\n\t\t\tmargin: 0px 5px 10px 0px\r\n\t\t}\r\n\t}\r\n\r\n\t&-inp-result-light{\r\n\t\tcolor: #13141A !important;\r\n\t}\r\n\t&-result-equally-light{\r\n\t\tcolor: #D9D9DE!important;\r\n\t\tbackground: #905be1;\r\n\t}\r\n\t&-btn-item-light{\r\n\t\tcolor: #13141A!important;\r\n\t\tbackground: #D9D9DE;\r\n\t}\r\n\t&-item-high-light{\r\n\t\tcolor: #9561E6!important;\r\n\t\tbackground: #D9D9DE;\r\n\t}\r\n\t&-operator-item-light{\r\n\t\tcolor: #9561E6!important;\r\n\t\tbackground: #D9D9DE;\r\n\t}\r\n\t&-inp-val-light{\r\n\t\tcolor: #5d6081 !important;\r\n\t}\r\n\t&-block-equally-light{\r\n\t\tcolor: #533c71 !important;\r\n\t}\r\n}\r\n.tree{\r\n\tbackground-image: url(\"/assets/images/space-1.jpg\");\r\n}\r\n/*\r\n\twidth: 100%;\r\n    height: unset;\r\n    border-radius: 5px;\r\n    background: #181921;\r\n    fill:#d9d9de\r\n */"],"sourceRoot":""}]);
+// Exports
+/* harmony default export */ const __WEBPACK_DEFAULT_EXPORT__ = (___CSS_LOADER_EXPORT___);
+
+
+/***/ }),
+
+/***/ "./node_modules/css-loader/dist/cjs.js!./node_modules/sass-loader/dist/cjs.js!./source/components/Chart/styles/chart.scss":
+/*!********************************************************************************************************************************!*\
+  !*** ./node_modules/css-loader/dist/cjs.js!./node_modules/sass-loader/dist/cjs.js!./source/components/Chart/styles/chart.scss ***!
+  \********************************************************************************************************************************/
+/***/ ((module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   "default": () => (__WEBPACK_DEFAULT_EXPORT__)
+/* harmony export */ });
+/* harmony import */ var _node_modules_css_loader_dist_runtime_sourceMaps_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ../../../../node_modules/css-loader/dist/runtime/sourceMaps.js */ "./node_modules/css-loader/dist/runtime/sourceMaps.js");
+/* harmony import */ var _node_modules_css_loader_dist_runtime_sourceMaps_js__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__webpack_require__.n(_node_modules_css_loader_dist_runtime_sourceMaps_js__WEBPACK_IMPORTED_MODULE_0__);
+/* harmony import */ var _node_modules_css_loader_dist_runtime_api_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! ../../../../node_modules/css-loader/dist/runtime/api.js */ "./node_modules/css-loader/dist/runtime/api.js");
+/* harmony import */ var _node_modules_css_loader_dist_runtime_api_js__WEBPACK_IMPORTED_MODULE_1___default = /*#__PURE__*/__webpack_require__.n(_node_modules_css_loader_dist_runtime_api_js__WEBPACK_IMPORTED_MODULE_1__);
+/* harmony import */ var _node_modules_css_loader_dist_runtime_getUrl_js__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! ../../../../node_modules/css-loader/dist/runtime/getUrl.js */ "./node_modules/css-loader/dist/runtime/getUrl.js");
+/* harmony import */ var _node_modules_css_loader_dist_runtime_getUrl_js__WEBPACK_IMPORTED_MODULE_2___default = /*#__PURE__*/__webpack_require__.n(_node_modules_css_loader_dist_runtime_getUrl_js__WEBPACK_IMPORTED_MODULE_2__);
+// Imports
+
+
+
+var ___CSS_LOADER_URL_IMPORT_0___ = new URL(/* asset import */ __webpack_require__(/*! ../../../assets/images/search.svg */ "./assets/images/search.svg"), __webpack_require__.b);
+var ___CSS_LOADER_URL_IMPORT_1___ = new URL(/* asset import */ __webpack_require__(/*! ../../../assets/images/vector.svg */ "./assets/images/vector.svg"), __webpack_require__.b);
+var ___CSS_LOADER_URL_IMPORT_2___ = new URL(/* asset import */ __webpack_require__(/*! ../../../assets/images/edit.svg */ "./assets/images/edit.svg"), __webpack_require__.b);
+var ___CSS_LOADER_URL_IMPORT_3___ = new URL(/* asset import */ __webpack_require__(/*! ../../../assets/images/trash.svg */ "./assets/images/trash.svg"), __webpack_require__.b);
+var ___CSS_LOADER_EXPORT___ = _node_modules_css_loader_dist_runtime_api_js__WEBPACK_IMPORTED_MODULE_1___default()((_node_modules_css_loader_dist_runtime_sourceMaps_js__WEBPACK_IMPORTED_MODULE_0___default()));
+var ___CSS_LOADER_URL_REPLACEMENT_0___ = _node_modules_css_loader_dist_runtime_getUrl_js__WEBPACK_IMPORTED_MODULE_2___default()(___CSS_LOADER_URL_IMPORT_0___);
+var ___CSS_LOADER_URL_REPLACEMENT_1___ = _node_modules_css_loader_dist_runtime_getUrl_js__WEBPACK_IMPORTED_MODULE_2___default()(___CSS_LOADER_URL_IMPORT_1___);
+var ___CSS_LOADER_URL_REPLACEMENT_2___ = _node_modules_css_loader_dist_runtime_getUrl_js__WEBPACK_IMPORTED_MODULE_2___default()(___CSS_LOADER_URL_IMPORT_2___);
+var ___CSS_LOADER_URL_REPLACEMENT_3___ = _node_modules_css_loader_dist_runtime_getUrl_js__WEBPACK_IMPORTED_MODULE_2___default()(___CSS_LOADER_URL_IMPORT_3___);
+// Module
+___CSS_LOADER_EXPORT___.push([module.id, `.content {
+  position: relative;
+  padding: 0px 30px 0px 20px; }
+  .content-head {
+    position: relative;
+    font-size: 22px;
+    font-family: "IBMPlexSans-Regular";
+    font-weight: 600;
+    color: white;
+    padding-bottom: 30px;
+    border-bottom: 1px solid #222B44; }
+  .content-title {
+    position: relative;
+    display: flex;
+    justify-content: space-between; }
+    .content-title-text {
+      font-size: 26px;
+      font-family: "IBMPlexSans-Regular";
+      color: white;
+      letter-spacing: 0.5px; }
+
+.input {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 11px 16px 11px 16px;
+  border-radius: 4px;
+  background: #1d1a2c;
+  width: 80%; }
+  .input-icon {
+    position: relative;
+    background-image: url(${___CSS_LOADER_URL_REPLACEMENT_0___});
+    width: 17px;
+    height: 17px;
+    background-size: initial;
+    background-repeat: no-repeat;
+    margin-right: 11px; }
+  .input-folder {
+    position: relative;
+    background: #1d1a2c;
+    text-decoration: unset;
+    outline: none;
+    width: 100%;
+    font-size: 14px;
+    font-family: "IBMPlexSans-Regular";
+    color: #616d8d;
+    border: unset; }
+  .input-folder::placeholder {
+    color: #616D8D;
+    font-family: "IBMPlexSans-Regular"; }
+
+.table {
+  position: relative;
+  width: 100%;
+  margin-top: 66px; }
+  .table-header {
+    display: flex;
+    justify-content: space-between;
+    position: relative;
+    width: 100%;
+    background: #2b273f;
+    border-left: 4px solid #453d67;
+    border-right: 4px solid #453d67;
+    border-radius: 3px;
+    padding: 10px 0px 10px 0px;
+    color: #bfc9d9;
+    font-size: 15px;
+    font-family: "IBMPlexSans-Regular";
+    margin-bottom: 4px; }
+  .table-item {
+    position: relative;
+    display: flex;
+    flex-basis: 500px;
+    justify-content: center; }
+    .table-item-text {
+      position: relative;
+      margin-right: 4px; }
+    .table-item-icon {
+      position: relative;
+      width: 20px;
+      height: 20px;
+      background-repeat: no-repeat;
+      background-size: cover; }
+    .table-item-arrow {
+      position: relative;
+      width: 20px;
+      height: 20px;
+      cursor: pointer;
+      background-image: url(${___CSS_LOADER_URL_REPLACEMENT_1___});
+      box-sizing: border-box;
+      background-repeat: no-repeat;
+      background-color: #5e5978;
+      background-position: center;
+      border-radius: 100%; }
+  .table-list {
+    position: relative; }
+    .table-list-row {
+      position: relative;
+      display: flex;
+      width: 100%;
+      background: #272338;
+      margin-bottom: 4px;
+      border-radius: 2px;
+      border-left: 5px solid #35314b;
+      border-right: 4px solid #35314b; }
+    .table-list-items {
+      position: relative;
+      display: flex;
+      width: 100%;
+      justify-content: space-between;
+      margin-left: 2px; }
+      .table-list-items-text {
+        position: relative;
+        font-size: 14px;
+        font-family: "IBMPlexSans-Regular";
+        font-weight: 500;
+        color: #bcc8df;
+        flex-basis: 500px;
+        display: flex;
+        justify-content: center;
+        padding: 14px 0px 14px 0px; }
+    .table-list-btns {
+      position: relative;
+      display: flex;
+      width: 20%;
+      justify-content: center;
+      padding: 14px 0px 14px 0px; }
+      .table-list-btns-edit {
+        position: relative;
+        width: 18px;
+        height: 18px;
+        background-image: url(${___CSS_LOADER_URL_REPLACEMENT_2___});
+        box-sizing: border-box;
+        background-repeat: no-repeat;
+        margin-right: 7px;
+        cursor: pointer; }
+      .table-list-btns-trash {
+        position: relative;
+        width: 18px;
+        height: 18px;
+        background-image: url(${___CSS_LOADER_URL_REPLACEMENT_3___});
+        box-sizing: border-box;
+        background-repeat: no-repeat;
+        cursor: pointer; }
+
+.pages {
+  position: relative;
+  padding: 25px 0px 30px 0px;
+  display: flex;
+  justify-content: center; }
+  .pages-select {
+    position: relative;
+    color: white;
+    background: #1d1a2c;
+    border-radius: 4px; }
+  .pages-wrap {
+    position: relative;
+    display: flex; }
+    .pages-wrap-item {
+      position: relative;
+      color: white;
+      font-family: "IBMPlexSans-Regular";
+      font-size: 14px;
+      padding: 6px 14px 6px 14px;
+      cursor: pointer; }
+
+.desc-sort {
+  transform: rotate(180deg); }
+
+.sub-size {
+  width: 22px;
+  height: 22px; }
+`, "",{"version":3,"sources":["webpack://./source/components/Chart/styles/chart.scss"],"names":[],"mappings":"AAAA;EACC,kBAAkB;EAClB,0BAA0B,EAAA;EAE1B;IACC,kBAAkB;IAClB,eAAe;IACf,kCAAkC;IAClC,gBAAgB;IAChB,YAAY;IACZ,oBAAoB;IACpB,gCAAgC,EAAA;EAGjC;IACC,kBAAkB;IAClB,aAAa;IACb,8BAA8B,EAAA;IAE9B;MACC,eAAe;MACf,kCAAkC;MAClC,YAAY;MACZ,qBAAqB,EAAA;;AAKxB;EACC,kBAAkB;EAClB,aAAa;EACb,mBAAmB;EACnB,4BAA4B;EAC5B,kBAAkB;EAClB,mBAAmB;EACnB,UAAU,EAAA;EAEV;IACC,kBAAkB;IAClB,yDAAkD;IAClD,WAAW;IACX,YAAY;IACZ,wBAAwB;IACxB,4BAA4B;IAC5B,kBAAkB,EAAA;EAGnB;IACC,kBAAkB;IAClB,mBAAmB;IACnB,sBAAsB;IACtB,aAAa;IACb,WAAW;IACX,eAAe;IACf,kCAAkC;IAClC,cAAc;IACd,aAAa,EAAA;EAEd;IACC,cAAc;IACd,kCAAkC,EAAA;;AAIpC;EACC,kBAAkB;EAClB,WAAW;EACX,gBAAgB,EAAA;EAEhB;IACC,aAAa;IACb,8BAA8B;IAC9B,kBAAkB;IAClB,WAAW;IACX,mBAAmB;IACnB,8BAA8B;IAC9B,+BAA+B;IAC/B,kBAAkB;IAClB,0BAA0B;IAC1B,cAAc;IACd,eAAe;IACf,kCAAkC;IAClC,kBAAkB,EAAA;EAGnB;IACC,kBAAkB;IAClB,aAAa;IACb,iBAAiB;IACjB,uBAAuB,EAAA;IAEvB;MACC,kBAAkB;MAClB,iBAAiB,EAAA;IAElB;MACC,kBAAkB;MAClB,WAAW;MACX,YAAY;MACZ,4BAA4B;MAC5B,sBAAsB,EAAA;IAEvB;MACC,kBAAkB;MAClB,WAAW;MACX,YAAY;MACZ,eAAe;MACf,yDAAkD;MAClD,sBAAsB;MACtB,4BAA4B;MAC5B,yBAAyB;MACzB,2BAA2B;MAC3B,mBAAmB,EAAA;EAIrB;IACC,kBAAkB,EAAA;IAElB;MACC,kBAAkB;MAClB,aAAa;MACb,WAAW;MACX,mBAAmB;MACnB,kBAAkB;MAClB,kBAAkB;MAClB,8BAA8B;MAC9B,+BAA+B,EAAA;IAGhC;MACC,kBAAkB;MAClB,aAAa;MACb,WAAW;MACX,8BAA8B;MAC9B,gBAAgB,EAAA;MAEhB;QACC,kBAAkB;QAClB,eAAe;QACf,kCAAkC;QAClC,gBAAgB;QAChB,cAAc;QACd,iBAAiB;QACjB,aAAa;QACb,uBAAuB;QACvB,0BAA0B,EAAA;IAI5B;MACC,kBAAkB;MAClB,aAAa;MACb,UAAU;MACV,uBAAuB;MACvB,0BAA0B,EAAA;MAE1B;QACC,kBAAkB;QAClB,WAAW;QACX,YAAY;QACZ,yDAAgD;QAChD,sBAAsB;QACtB,4BAA4B;QAC5B,iBAAiB;QACjB,eAAe,EAAA;MAGhB;QACC,kBAAkB;QAClB,WAAW;QACX,YAAY;QACZ,yDAAiD;QACjD,sBAAsB;QACtB,4BAA4B;QAC5B,eAAe,EAAA;;AAKnB;EACC,kBAAkB;EAClB,0BAA0B;EAC1B,aAAa;EACb,uBAAuB,EAAA;EAEvB;IACC,kBAAkB;IAClB,YAAY;IACZ,mBAAmB;IACnB,kBAAkB,EAAA;EAGnB;IACC,kBAAkB;IAClB,aAAa,EAAA;IAEb;MACC,kBAAkB;MAClB,YAAY;MACZ,kCAAkC;MAClC,eAAe;MACf,0BAA0B;MAC1B,eAAe,EAAA;;AAKlB;EACC,yBAAyB,EAAA;;AAE1B;EACC,WAAW;EACX,YAAY,EAAA","sourcesContent":[".content{\r\n\tposition: relative;\r\n\tpadding: 0px 30px 0px 20px;\r\n\r\n\t&-head{\r\n\t\tposition: relative;\r\n\t\tfont-size: 22px;\r\n\t\tfont-family: \"IBMPlexSans-Regular\";\r\n\t\tfont-weight: 600;\r\n\t\tcolor: white;\r\n\t\tpadding-bottom: 30px;\r\n\t\tborder-bottom: 1px solid #222B44;\r\n\t}\r\n\r\n\t&-title{\r\n\t\tposition: relative;\r\n\t\tdisplay: flex;\r\n\t\tjustify-content: space-between;\r\n\r\n\t\t&-text{\r\n\t\t\tfont-size: 26px;\r\n\t\t\tfont-family: \"IBMPlexSans-Regular\";\r\n\t\t\tcolor: white;\r\n\t\t\tletter-spacing: 0.5px;\r\n\t\t}\r\n\t}\r\n}\r\n\r\n.input{\r\n\tposition: relative;\r\n\tdisplay: flex;\r\n\talign-items: center;\r\n\tpadding: 11px 16px 11px 16px;\r\n\tborder-radius: 4px;\r\n\tbackground: #1d1a2c;\r\n\twidth: 80%;\r\n\r\n\t&-icon{\r\n\t\tposition: relative;\r\n\t\tbackground-image: url(\"/assets/images/search.svg\");\r\n\t\twidth: 17px;\r\n\t\theight: 17px;\r\n\t\tbackground-size: initial;\r\n\t\tbackground-repeat: no-repeat;\r\n\t\tmargin-right: 11px;\r\n\t}\r\n\r\n\t&-folder{\r\n\t\tposition: relative;\r\n\t\tbackground: #1d1a2c;\r\n\t\ttext-decoration: unset;\r\n\t\toutline: none;\r\n\t\twidth: 100%;\r\n\t\tfont-size: 14px;\r\n\t\tfont-family: \"IBMPlexSans-Regular\";\r\n\t\tcolor: #616d8d;\r\n\t\tborder: unset;\r\n\t}\r\n\t&-folder::placeholder{\r\n\t\tcolor: #616D8D;\r\n\t\tfont-family: \"IBMPlexSans-Regular\";\r\n\t}\r\n}\r\n\r\n.table{\r\n\tposition: relative;\r\n\twidth: 100%;\r\n\tmargin-top: 66px;\r\n\r\n\t&-header{\r\n\t\tdisplay: flex;\r\n\t\tjustify-content: space-between;\r\n\t\tposition: relative;\r\n\t\twidth: 100%;\r\n\t\tbackground: #2b273f;\r\n\t\tborder-left: 4px solid #453d67;\r\n\t\tborder-right: 4px solid #453d67;\r\n\t\tborder-radius: 3px;\r\n\t\tpadding: 10px 0px 10px 0px;\r\n\t\tcolor: #bfc9d9;\r\n\t\tfont-size: 15px;\r\n\t\tfont-family: \"IBMPlexSans-Regular\";\r\n\t\tmargin-bottom: 4px;\r\n\t}\r\n\r\n\t&-item{\r\n\t\tposition: relative;\r\n\t\tdisplay: flex;\r\n\t\tflex-basis: 500px;\r\n\t\tjustify-content: center;\r\n\r\n\t\t&-text{\r\n\t\t\tposition: relative;\r\n\t\t\tmargin-right: 4px;\r\n\t\t}\r\n\t\t&-icon{\r\n\t\t\tposition: relative;\r\n\t\t\twidth: 20px;\r\n\t\t\theight: 20px;\r\n\t\t\tbackground-repeat: no-repeat;\r\n\t\t\tbackground-size: cover;\r\n\t\t}\r\n\t\t&-arrow{\r\n\t\t\tposition: relative;\r\n\t\t\twidth: 20px;\r\n\t\t\theight: 20px;\r\n\t\t\tcursor: pointer;\r\n\t\t\tbackground-image: url(\"/assets/images/vector.svg\");\r\n\t\t\tbox-sizing: border-box;\r\n\t\t\tbackground-repeat: no-repeat;\r\n\t\t\tbackground-color: #5e5978;\r\n\t\t\tbackground-position: center;\r\n\t\t\tborder-radius: 100%;\r\n\t\t}\r\n\t}\r\n\r\n\t&-list{\r\n\t\tposition: relative;\r\n\r\n\t\t&-row{\r\n\t\t\tposition: relative;\r\n\t\t\tdisplay: flex;\r\n\t\t\twidth: 100%;\r\n\t\t\tbackground: #272338;\r\n\t\t\tmargin-bottom: 4px;\r\n\t\t\tborder-radius: 2px;\r\n\t\t\tborder-left: 5px solid #35314b;\r\n\t\t\tborder-right: 4px solid #35314b;\r\n\t\t}\r\n\r\n\t\t&-items{\r\n\t\t\tposition: relative;\r\n\t\t\tdisplay: flex;\r\n\t\t\twidth: 100%;\r\n\t\t\tjustify-content: space-between;\r\n\t\t\tmargin-left: 2px;\r\n\r\n\t\t\t&-text{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\tfont-size: 14px;\r\n\t\t\t\tfont-family: \"IBMPlexSans-Regular\";\r\n\t\t\t\tfont-weight: 500;\r\n\t\t\t\tcolor: #bcc8df;\r\n\t\t\t\tflex-basis: 500px;\r\n\t\t\t\tdisplay: flex;\r\n\t\t\t\tjustify-content: center;\r\n\t\t\t\tpadding: 14px 0px 14px 0px;\r\n\t\t\t}\r\n\t\t}\r\n\r\n\t\t&-btns{\r\n\t\t\tposition: relative;\r\n\t\t\tdisplay: flex;\r\n\t\t\twidth: 20%;\r\n\t\t\tjustify-content: center;\r\n\t\t\tpadding: 14px 0px 14px 0px;\r\n\r\n\t\t\t&-edit{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\twidth: 18px;\r\n\t\t\t\theight: 18px;\r\n\t\t\t\tbackground-image: url(\"/assets/images/edit.svg\");\r\n\t\t\t\tbox-sizing: border-box;\r\n\t\t\t\tbackground-repeat: no-repeat;\r\n\t\t\t\tmargin-right: 7px;\r\n\t\t\t\tcursor: pointer;\r\n\t\t\t}\r\n\r\n\t\t\t&-trash{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\twidth: 18px;\r\n\t\t\t\theight: 18px;\r\n\t\t\t\tbackground-image: url(\"/assets/images/trash.svg\");\r\n\t\t\t\tbox-sizing: border-box;\r\n\t\t\t\tbackground-repeat: no-repeat;\r\n\t\t\t\tcursor: pointer;\r\n\t\t\t}\r\n\t\t}\r\n\t}\r\n}\r\n.pages{\r\n\tposition: relative;\r\n\tpadding: 25px 0px 30px 0px;\r\n\tdisplay: flex;\r\n\tjustify-content: center;\r\n\r\n\t&-select{\r\n\t\tposition: relative;\r\n\t\tcolor: white;\r\n\t\tbackground: #1d1a2c;\r\n\t\tborder-radius: 4px;\r\n\t}\r\n\r\n\t&-wrap{\r\n\t\tposition: relative;\r\n\t\tdisplay: flex;\r\n\r\n\t\t&-item{\r\n\t\t\tposition: relative;\r\n\t\t\tcolor: white;\r\n\t\t\tfont-family: \"IBMPlexSans-Regular\";\r\n\t\t\tfont-size: 14px;\r\n\t\t\tpadding: 6px 14px 6px 14px;\r\n\t\t\tcursor: pointer;\r\n\t\t\t//margin-right: 20px;\r\n\t\t}\r\n\t}\r\n}\r\n.desc-sort{\r\n\ttransform: rotate(180deg);\r\n}\r\n.sub-size{\r\n\twidth: 22px;\r\n\theight: 22px;\r\n}\r\n\r\n//#272338; #3d3950;#1b1829; #1e1b2e; #1d1a2c;#35314b\r\n//#161525;#12121e;#1b202f;#232031;#211c29;#161421;\r\n//#2a2541;#1b172b;#1d192b; #1f1b2f; #13101e;#191621;#181423;#110e18"],"sourceRoot":""}]);
+// Exports
+/* harmony default export */ const __WEBPACK_DEFAULT_EXPORT__ = (___CSS_LOADER_EXPORT___);
+
+
+/***/ }),
+
+/***/ "./node_modules/css-loader/dist/cjs.js!./node_modules/sass-loader/dist/cjs.js!./source/components/Chart/styles/sidebar.chart.scss":
+/*!****************************************************************************************************************************************!*\
+  !*** ./node_modules/css-loader/dist/cjs.js!./node_modules/sass-loader/dist/cjs.js!./source/components/Chart/styles/sidebar.chart.scss ***!
+  \****************************************************************************************************************************************/
+/***/ ((module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   "default": () => (__WEBPACK_DEFAULT_EXPORT__)
+/* harmony export */ });
+/* harmony import */ var _node_modules_css_loader_dist_runtime_sourceMaps_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ../../../../node_modules/css-loader/dist/runtime/sourceMaps.js */ "./node_modules/css-loader/dist/runtime/sourceMaps.js");
+/* harmony import */ var _node_modules_css_loader_dist_runtime_sourceMaps_js__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__webpack_require__.n(_node_modules_css_loader_dist_runtime_sourceMaps_js__WEBPACK_IMPORTED_MODULE_0__);
+/* harmony import */ var _node_modules_css_loader_dist_runtime_api_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! ../../../../node_modules/css-loader/dist/runtime/api.js */ "./node_modules/css-loader/dist/runtime/api.js");
+/* harmony import */ var _node_modules_css_loader_dist_runtime_api_js__WEBPACK_IMPORTED_MODULE_1___default = /*#__PURE__*/__webpack_require__.n(_node_modules_css_loader_dist_runtime_api_js__WEBPACK_IMPORTED_MODULE_1__);
+/* harmony import */ var _node_modules_css_loader_dist_runtime_getUrl_js__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! ../../../../node_modules/css-loader/dist/runtime/getUrl.js */ "./node_modules/css-loader/dist/runtime/getUrl.js");
+/* harmony import */ var _node_modules_css_loader_dist_runtime_getUrl_js__WEBPACK_IMPORTED_MODULE_2___default = /*#__PURE__*/__webpack_require__.n(_node_modules_css_loader_dist_runtime_getUrl_js__WEBPACK_IMPORTED_MODULE_2__);
+// Imports
+
+
+
+var ___CSS_LOADER_URL_IMPORT_0___ = new URL(/* asset import */ __webpack_require__(/*! ../../../assets/images/close.svg */ "./assets/images/close.svg"), __webpack_require__.b);
+var ___CSS_LOADER_URL_IMPORT_1___ = new URL(/* asset import */ __webpack_require__(/*! ../../../assets/images/vector-1.svg */ "./assets/images/vector-1.svg"), __webpack_require__.b);
+var ___CSS_LOADER_URL_IMPORT_2___ = new URL(/* asset import */ __webpack_require__(/*! ../../../assets/images/vector-2.svg */ "./assets/images/vector-2.svg"), __webpack_require__.b);
+var ___CSS_LOADER_EXPORT___ = _node_modules_css_loader_dist_runtime_api_js__WEBPACK_IMPORTED_MODULE_1___default()((_node_modules_css_loader_dist_runtime_sourceMaps_js__WEBPACK_IMPORTED_MODULE_0___default()));
+var ___CSS_LOADER_URL_REPLACEMENT_0___ = _node_modules_css_loader_dist_runtime_getUrl_js__WEBPACK_IMPORTED_MODULE_2___default()(___CSS_LOADER_URL_IMPORT_0___);
+var ___CSS_LOADER_URL_REPLACEMENT_1___ = _node_modules_css_loader_dist_runtime_getUrl_js__WEBPACK_IMPORTED_MODULE_2___default()(___CSS_LOADER_URL_IMPORT_1___);
+var ___CSS_LOADER_URL_REPLACEMENT_2___ = _node_modules_css_loader_dist_runtime_getUrl_js__WEBPACK_IMPORTED_MODULE_2___default()(___CSS_LOADER_URL_IMPORT_2___);
+// Module
+___CSS_LOADER_EXPORT___.push([module.id, `.sidebar-backdrop {
+  position: fixed;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  background: #070a0ff2;
+  width: 100%;
+  height: 100%;
+  z-index: 0; }
+
+.sidebar {
+  position: fixed;
+  right: 0px;
+  width: 470px;
+  top: 0px;
+  bottom: 0px;
+  background: #151321;
+  padding: 56px 40px  56px 20px;
+  border-left: 1px solid #242031;
+  overflow-y: auto; }
+
+.sidebar::-webkit-scrollbar {
+  width: 6px;
+  cursor: pointer; }
+
+.sidebar::-webkit-scrollbar-track {
+  border-radius: 10px; }
+
+.sidebar::-webkit-scrollbar-thumb {
+  background: #202d4d;
+  border-radius: 10px; }
+
+.hidden {
+  display: none; }
+
+.block {
+  display: block; }
+
+.user-mail {
+  position: relative;
+  display: flex;
+  color: white;
+  box-sizing: border-box;
+  justify-content: space-between; }
+  .user-mail-text {
+    position: relative;
+    font-family: "IBMPlexSans-Regular";
+    font-size: 20px; }
+
+.chart-title {
+  position: relative;
+  display: flex;
+  justify-content: space-between; }
+  .chart-title-text {
+    position: relative;
+    color: white;
+    font-family: 'IBMPlexSans-Regular';
+    font-size: 20px;
+    font-weight: 600;
+    margin-bottom: 24px; }
+  .chart-title-close {
+    position: relative;
+    width: 24px;
+    height: 24px;
+    background-repeat: no-repeat;
+    background-image: url(${___CSS_LOADER_URL_REPLACEMENT_0___});
+    cursor: pointer; }
+
+.chart {
+  position: relative;
+  margin-top: 27px;
+  background-color: #161616; }
+  .chart-title {
+    position: relative;
+    color: white;
+    font-family: 'IBMPlexSans-Regular';
+    font-size: 20px;
+    font-weight: 600;
+    margin-bottom: 24px; }
+  .chart-d {
+    position: relative; }
+    .chart-d-schedule {
+      position: relative;
+      width: 409px;
+      height: 324px;
+      background-repeat: no-repeat;
+      box-sizing: border-box;
+      background-size: contain; }
+    .chart-d-mail {
+      position: relative;
+      display: flex;
+      width: 100%;
+      justify-content: center;
+      margin-top: 10px;
+      padding-bottom: 15px; }
+      .chart-d-mail-i {
+        position: relative;
+        width: 12px;
+        height: 12px;
+        background: #1C64F2;
+        border-radius: 2px;
+        margin-right: 9px; }
+      .chart-d-mail-title {
+        position: relative;
+        color: #616D8D;
+        font-family: 'IBMPlexSans-Regular';
+        font-weight: 500;
+        font-size: 12px; }
+
+.tokens {
+  position: relative; }
+  .tokens-title {
+    position: relative;
+    color: #e9e2ff;
+    font-family: "IBMPlexSans-Regular";
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    padding: 36px 0px 11px 0px; }
+  .tokens-header {
+    position: relative;
+    display: flex;
+    justify-content: space-around;
+    background: #1b1929;
+    color: #b9b4db;
+    padding: 14px 0px 14px 0px;
+    font-family: "IBMPlexSans-Regular";
+    font-size: 14px;
+    text-shadow: 0px 0px 0px #b9b4db;
+    border-left: 4px solid #353247;
+    border-right: 4px solid #353247;
+    margin-bottom: 2px; }
+    .tokens-header-item {
+      position: relative; }
+  .tokens-wrap {
+    position: relative; }
+  .tokens-block {
+    position: relative;
+    display: flex;
+    text-align: end;
+    justify-content: space-between;
+    padding: 10px 12px 7px 12px;
+    background: #191725;
+    margin-bottom: 2px;
+    font-size: 15px;
+    border-left: 4px solid #211e2f;
+    border-right: 4px solid #211e2f;
+    align-items: center;
+    color: #c1b4d3;
+    font-family: 'IBMPlexSans-Regular'; }
+    .tokens-block-item {
+      position: relative; }
+    .tokens-block-type {
+      position: relative;
+      display: flex;
+      align-items: center; }
+      .tokens-block-type-text {
+        position: relative; }
+      .tokens-block-type-i {
+        position: relative; }
+  .tokens-date {
+    position: relative;
+    display: flex;
+    flex-direction: column; }
+    .tokens-date-item {
+      position: relative; }
+
+.operation-replenish {
+  position: relative;
+  background-repeat: no-repeat;
+  background-image: url(${___CSS_LOADER_URL_REPLACEMENT_1___});
+  width: 10px;
+  height: 20px;
+  background-position-y: center;
+  margin-right: 5px;
+  transform: rotate(180deg); }
+
+.operation-writeOff {
+  position: relative;
+  background-repeat: no-repeat;
+  background-image: url(${___CSS_LOADER_URL_REPLACEMENT_2___});
+  width: 10px;
+  height: 20px;
+  background-position-y: center;
+  margin-right: 4px; }
+
+.replenish-amount {
+  position: relative;
+  color: #487e9f; }
+
+.writeOff-amount {
+  position: relative;
+  color: #865589; }
+`, "",{"version":3,"sources":["webpack://./source/components/Chart/styles/sidebar.chart.scss"],"names":[],"mappings":"AAAA;EACC,eAAe;EACf,OAAO;EACP,MAAM;EACN,QAAQ;EACR,SAAS;EACT,qBAAqB;EACrB,WAAW;EACX,YAAY;EACZ,UAAU,EAAA;;AAGX;EACC,eAAe;EACf,UAAU;EACV,YAAY;EACZ,QAAQ;EACR,WAAW;EACX,mBAAkB;EAClB,6BAA6B;EAC7B,8BAA8B;EAC9B,gBAAgB,EAAA;;AAEjB;EACC,UAAU;EACV,eAAe,EAAA;;AAEhB;EACC,mBAAmB,EAAA;;AAEpB;EACC,mBAAmB;EACnB,mBAAmB,EAAA;;AAIpB;EACC,aAAa,EAAA;;AAEd;EACC,cAAc,EAAA;;AAGf;EACC,kBAAkB;EAClB,aAAa;EACb,YAAY;EACZ,sBAAsB;EACtB,8BAA8B,EAAA;EAE9B;IACC,kBAAkB;IAClB,kCAAkC;IAClC,eAAe,EAAA;;AAGjB;EACC,kBAAkB;EAClB,aAAa;EACb,8BAA8B,EAAA;EAE9B;IACC,kBAAkB;IAClB,YAAY;IACZ,kCAAkC;IAClC,eAAe;IACf,gBAAgB;IAChB,mBAAmB,EAAA;EAGpB;IACC,kBAAkB;IAClB,WAAW;IACX,YAAY;IACZ,4BAA4B;IAC5B,yDAAiD;IACjD,eAAe,EAAA;;AAKjB;EACC,kBAAkB;EAClB,gBAAgB;EAChB,yBAAyB,EAAA;EAEzB;IACC,kBAAkB;IAClB,YAAW;IACX,kCAAiC;IACjC,eAAe;IACf,gBAAgB;IAChB,mBAAmB,EAAA;EAGpB;IACC,kBAAkB,EAAA;IAElB;MACC,kBAAkB;MAClB,YAAY;MACZ,aAAa;MACb,4BAA4B;MAC5B,sBAAsB;MACtB,wBAAwB,EAAA;IAGzB;MACC,kBAAkB;MAClB,aAAa;MACb,WAAW;MACX,uBAAuB;MACvB,gBAAgB;MAChB,oBAAoB,EAAA;MAEpB;QACC,kBAAkB;QAClB,WAAW;QACX,YAAY;QACZ,mBAAmB;QACnB,kBAAkB;QAClB,iBAAiB,EAAA;MAGlB;QACC,kBAAkB;QAClB,cAAc;QACd,kCAAiC;QACjC,gBAAgB;QAChB,eAAe,EAAA;;AAMnB;EACC,kBAAkB,EAAA;EAElB;IACC,kBAAkB;IAClB,cAAc;IACd,kCAAkC;IAClC,eAAe;IACf,gBAAgB;IAChB,mBAAmB;IACnB,0BAA0B,EAAA;EAG3B;IACC,kBAAkB;IAClB,aAAa;IACb,6BAA6B;IAC7B,mBAAmB;IACnB,cAAc;IACd,0BAA0B;IAC1B,kCAAkC;IAClC,eAAe;IACf,gCAAgC;IAChC,8BAA8B;IAC9B,+BAA+B;IAC/B,kBAAkB,EAAA;IAElB;MACC,kBAAkB,EAAA;EAIpB;IACC,kBAAkB,EAAA;EAGnB;IACC,kBAAkB;IAClB,aAAa;IACb,eAAe;IACf,8BAA8B;IAC9B,2BAA2B;IAC3B,mBAAmB;IACnB,kBAAkB;IAClB,eAAe;IACf,8BAA8B;IAC9B,+BAA+B;IAC/B,mBAAmB;IACnB,cAAc;IACd,kCAAkC,EAAA;IAElC;MACC,kBAAkB,EAAA;IAGnB;MACC,kBAAkB;MAClB,aAAa;MACb,mBAAmB,EAAA;MAEnB;QACC,kBAAkB,EAAA;MAEnB;QACC,kBAAkB,EAAA;EAKrB;IACC,kBAAkB;IAClB,aAAa;IACb,sBAAsB,EAAA;IAEtB;MACC,kBAAkB,EAAA;;AAIrB;EACC,kBAAkB;EAClB,4BAA4B;EAC5B,yDAAoD;EACpD,WAAW;EACX,YAAY;EACZ,6BAA6B;EAC7B,iBAAiB;EACjB,yBAAyB,EAAA;;AAE1B;EACC,kBAAkB;EAClB,4BAA4B;EAC5B,yDAAoD;EACpD,WAAW;EACX,YAAY;EACZ,6BAA6B;EAC7B,iBAAiB,EAAA;;AAElB;EACC,kBAAkB;EAClB,cAAc,EAAA;;AAEf;EACC,kBAAkB;EAClB,cAAc,EAAA","sourcesContent":[".sidebar-backdrop{\r\n\tposition: fixed;\r\n\tleft: 0;\r\n\ttop: 0;\r\n\tright: 0;\r\n\tbottom: 0;\r\n\tbackground: #070a0ff2;\r\n\twidth: 100%;\r\n\theight: 100%;\r\n\tz-index: 0;\r\n}\r\n\r\n.sidebar{\r\n\tposition: fixed;\r\n\tright: 0px;\r\n\twidth: 470px;\r\n\ttop: 0px;\r\n\tbottom: 0px;\r\n\tbackground:#151321;\r\n\tpadding: 56px 40px  56px 20px;\r\n\tborder-left: 1px solid #242031;\r\n\toverflow-y: auto;\r\n}\r\n.sidebar::-webkit-scrollbar {\r\n\twidth: 6px;\r\n\tcursor: pointer;\r\n}\r\n.sidebar::-webkit-scrollbar-track {\r\n\tborder-radius: 10px;\r\n}\r\n.sidebar::-webkit-scrollbar-thumb {\r\n\tbackground: #202d4d;\r\n\tborder-radius: 10px;\r\n}\r\n\r\n\r\n.hidden{\r\n\tdisplay: none;\r\n}\r\n.block{\r\n\tdisplay: block;\r\n}\r\n\r\n.user-mail{\r\n\tposition: relative;\r\n\tdisplay: flex;\r\n\tcolor: white;\r\n\tbox-sizing: border-box;\r\n\tjustify-content: space-between;\r\n\r\n\t&-text{\r\n\t\tposition: relative;\r\n\t\tfont-family: \"IBMPlexSans-Regular\";\r\n\t\tfont-size: 20px;\r\n\t}\r\n}\r\n.chart-title{\r\n\tposition: relative;\r\n\tdisplay: flex;\r\n\tjustify-content: space-between;\r\n\r\n\t&-text{\r\n\t\tposition: relative;\r\n\t\tcolor: white;\r\n\t\tfont-family: 'IBMPlexSans-Regular';\r\n\t\tfont-size: 20px;\r\n\t\tfont-weight: 600;\r\n\t\tmargin-bottom: 24px;\r\n\t}\r\n\r\n\t&-close{\r\n\t\tposition: relative;\r\n\t\twidth: 24px;\r\n\t\theight: 24px;\r\n\t\tbackground-repeat: no-repeat;\r\n\t\tbackground-image: url(\"/assets/images/close.svg\");\r\n\t\tcursor: pointer;\r\n\t}\r\n}\r\n\r\n\r\n.chart{\r\n\tposition: relative;\r\n\tmargin-top: 27px;\r\n\tbackground-color: #161616;\r\n\r\n\t&-title{\r\n\t\tposition: relative;\r\n\t\tcolor:white;\r\n\t\tfont-family:'IBMPlexSans-Regular';\r\n\t\tfont-size: 20px;\r\n\t\tfont-weight: 600;\r\n\t\tmargin-bottom: 24px;\r\n\r\n\t}\r\n\t&-d{\r\n\t\tposition: relative;\r\n\r\n\t\t&-schedule{\r\n\t\t\tposition: relative;\r\n\t\t\twidth: 409px;\r\n\t\t\theight: 324px;\r\n\t\t\tbackground-repeat: no-repeat;\r\n\t\t\tbox-sizing: border-box;\r\n\t\t\tbackground-size: contain;\r\n\t\t}\r\n\r\n\t\t&-mail{\r\n\t\t\tposition: relative;\r\n\t\t\tdisplay: flex;\r\n\t\t\twidth: 100%;\r\n\t\t\tjustify-content: center;\r\n\t\t\tmargin-top: 10px;\r\n\t\t\tpadding-bottom: 15px;\r\n\r\n\t\t\t&-i{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\twidth: 12px;\r\n\t\t\t\theight: 12px;\r\n\t\t\t\tbackground: #1C64F2;\r\n\t\t\t\tborder-radius: 2px;\r\n\t\t\t\tmargin-right: 9px;\r\n\t\t\t}\r\n\r\n\t\t\t&-title{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\tcolor: #616D8D;\r\n\t\t\t\tfont-family:'IBMPlexSans-Regular';\r\n\t\t\t\tfont-weight: 500;\r\n\t\t\t\tfont-size: 12px;\r\n\t\t\t}\r\n\t\t}\r\n\t}\r\n}\r\n\r\n.tokens{\r\n\tposition: relative;\r\n\r\n\t&-title{\r\n\t\tposition: relative;\r\n\t\tcolor: #e9e2ff;\r\n\t\tfont-family: \"IBMPlexSans-Regular\";\r\n\t\tfont-size: 20px;\r\n\t\tfont-weight: 600;\r\n\t\tletter-spacing: 1px;\r\n\t\tpadding: 36px 0px 11px 0px;\r\n\t}\r\n\r\n\t&-header{\r\n\t\tposition: relative;\r\n\t\tdisplay: flex;\r\n\t\tjustify-content: space-around;\r\n\t\tbackground: #1b1929;\r\n\t\tcolor: #b9b4db;\r\n\t\tpadding: 14px 0px 14px 0px;\r\n\t\tfont-family: \"IBMPlexSans-Regular\";\r\n\t\tfont-size: 14px;\r\n\t\ttext-shadow: 0px 0px 0px #b9b4db;\r\n\t\tborder-left: 4px solid #353247;\r\n\t\tborder-right: 4px solid #353247;\r\n\t\tmargin-bottom: 2px;\r\n\r\n\t\t&-item{\r\n\t\t\tposition: relative;\r\n\t\t}\r\n\t}\r\n\r\n\t&-wrap{\r\n\t\tposition: relative;\r\n\t}\r\n\r\n\t&-block{\r\n\t\tposition: relative;\r\n\t\tdisplay: flex;\r\n\t\ttext-align: end;\r\n\t\tjustify-content: space-between;\r\n\t\tpadding: 10px 12px 7px 12px;\r\n\t\tbackground: #191725;\r\n\t\tmargin-bottom: 2px;\r\n\t\tfont-size: 15px;\r\n\t\tborder-left: 4px solid #211e2f;\r\n\t\tborder-right: 4px solid #211e2f;\r\n\t\talign-items: center;\r\n\t\tcolor: #c1b4d3;\r\n\t\tfont-family: 'IBMPlexSans-Regular';\r\n\r\n\t\t&-item{\r\n\t\t\tposition: relative;\r\n\t\t}\r\n\r\n\t\t&-type{\r\n\t\t\tposition: relative;\r\n\t\t\tdisplay: flex;\r\n\t\t\talign-items: center;\r\n\r\n\t\t\t&-text{\r\n\t\t\t\tposition: relative;\r\n\t\t\t}\r\n\t\t\t&-i{\r\n\t\t\t\tposition: relative;\r\n\t\t\t}\r\n\t\t}\r\n\t}\r\n\r\n\t&-date{\r\n\t\tposition: relative;\r\n\t\tdisplay: flex;\r\n\t\tflex-direction: column;\r\n\r\n\t\t&-item{\r\n\t\t\tposition: relative;\r\n\t\t}\r\n\t}\r\n}\r\n.operation-replenish{\r\n\tposition: relative;\r\n\tbackground-repeat: no-repeat;\r\n\tbackground-image: url(\"/assets/images/vector-1.svg\");\r\n\twidth: 10px;\r\n\theight: 20px;\r\n\tbackground-position-y: center;\r\n\tmargin-right: 5px;\r\n\ttransform: rotate(180deg);\r\n}\r\n.operation-writeOff{\r\n\tposition: relative;\r\n\tbackground-repeat: no-repeat;\r\n\tbackground-image: url(\"/assets/images/vector-2.svg\");\r\n\twidth: 10px;\r\n\theight: 20px;\r\n\tbackground-position-y: center;\r\n\tmargin-right: 4px;\r\n}\r\n.replenish-amount{\r\n\tposition: relative;\r\n\tcolor: #487e9f;\r\n}\r\n.writeOff-amount{\r\n\tposition: relative;\r\n\tcolor: #865589;\r\n}\r\n\r\n//#191821\r\n//#242135\r\n//#1f1d2b;"],"sourceRoot":""}]);
 // Exports
 /* harmony default export */ const __WEBPACK_DEFAULT_EXPORT__ = (___CSS_LOADER_EXPORT___);
 
@@ -7211,17 +8890,17 @@ ___CSS_LOADER_EXPORT___.push([module.id, `.tree {
   .tree-add {
     position: relative;
     display: flex;
-    background: #3e294b;
+    background: #30203b;
     align-items: center;
     width: fit-content;
-    padding: 5px 7px 5px 8px;
+    padding: 5px 4px 5px 8px;
     border-radius: 15px;
     cursor: pointer;
-    border: 1px solid #4b335b; }
+    border: 1px solid #3c254d; }
     .tree-add-text {
       position: relative;
-      font-family: "Roboto";
-      font-size: 15px;
+      font-family: 'Roboto';
+      font-size: 14px;
       margin-right: 6px;
       color: #ffffff;
       text-shadow: 0px 0px 0px #563789; }
@@ -7234,7 +8913,7 @@ ___CSS_LOADER_EXPORT___.push([module.id, `.tree {
       font-family: 'Roboto'; }
   .tree-body {
     position: relative;
-    margin-top: 17px;
+    margin-top: 40px;
     padding: 3px 4px 5px 3px;
     border-radius: 7px;
     overflow: auto;
@@ -7343,10 +9022,54 @@ ___CSS_LOADER_EXPORT___.push([module.id, `.tree {
     padding: 0px 0px 0px 10px;
     background: #291b31; }
 
-.arrow-down {
-  transform: rotate(180deg);
-  background: #1f1f3b; }
-`, "",{"version":3,"sources":["webpack://./source/components/Tree/styles/tree.scss"],"names":[],"mappings":"AAAA;EACC,kBAAkB;EAClB,WAAW;EACX,YAAY;EACZ,mBAAmB;EACnB,kBAAkB;EAClB,4BAA4B,EAAA;EAE5B;IACC,kBAAkB,EAAA;EAGnB;IACC,kBAAkB;IAClB,aAAa;IACb,mBAAmB;IACnB,mBAAmB;IACnB,kBAAkB;IAClB,wBAAwB;IACxB,mBAAmB;IACnB,eAAe;IACf,yBAAyB,EAAA;IAEzB;MACC,kBAAkB;MAClB,qBAAqB;MACrB,eAAe;MACf,iBAAiB;MACjB,cAAc;MACd,gCAAgC,EAAA;IAEjC;MACC,kBAAkB;MAClB,mBAAmB;MACnB,wBAAwB;MACxB,mBAAmB;MACnB,YAAY;MACZ,qBAAqB,EAAA;EAIvB;IACC,kBAAkB;IAClB,gBAAgB;IAChB,wBAAwB;IACxB,kBAAkB;IAClB,cAAc;IACd,iBAAiB,EAAA;EAGjB;IACC,kBAAkB;IAClB,aAAa,EAAA;IAEb;MACC,kBAAkB;MAClB,eAAe;MACf,uBAAuB,EAAA;IAExB;MACC,kBAAkB;MAClB,eAAe;MACf,mBAAmB;MACnB,mBAAmB;MACnB,WAAW;MACX,YAAY;MACZ,aAAa;MACb,uBAAuB;MACvB,YAAY;MACZ,eAAe,EAAA;IAEhB;MACC,kBAAkB;MAClB,eAAe;MACf,mBAAmB;MACnB,mBAAmB;MACnB,WAAW;MACX,YAAY;MACZ,aAAa;MACb,uBAAuB;MACvB,YAAY;MACZ,eAAe,EAAA;EAIjB;IACC,kBAAkB;IAClB,kBAAkB;IAClB,aAAa;IACb,sBAAsB,EAAA;IAEtB;MACC,kBAAkB;MAClB,WAAW;MACX,YAAY;MACZ,mBAAmB;MACnB,mBAAmB;MACnB,WAAW;MACX,aAAa;MACb,eAAe;MACf,qBAAqB;MACrB,uBAAuB;MACvB,iBAAiB;MACjB,eAAe,EAAA;IAGhB;MACC,kBAAkB;MAClB,iBAAiB,EAAA;IAGlB;MACC,kBAAkB;MAClB,aAAa;MACb,mBAAmB;MACnB,mBAAmB;MACnB,kBAAkB;MAClB,wBAAwB;MACxB,cAAc;MACd,qBAAqB;MACrB,eAAe;MACf,yBAAyB,EAAA;EAzH7B;IA8HG,kBAAkB;IAClB,aAAa,EAAA;IA/HhB;MAkII,kBAAkB;MAClB,WAAW;MACX,YAAY;MACZ,iBAAiB;MACjB,kBAAkB;MAClB,eAAe;MACf,kBAAkB;MAClB,iBAAiB;MACjB,qBAAqB;MACrB,eAAe,EAAA;IA3InB;MA8II,kBAAkB;MAClB,WAAW;MACX,YAAY;MACZ,mBAAmB;MACnB,iBAAiB;MACjB,kBAAkB;MAClB,eAAe;MACf,kBAAkB;MAClB,eAAe;MACf,yBAAyB;MACzB,iBAAiB,EAAA;IAxJrB;MA2JI,kBAAkB;MAClB,WAAW;MACX,YAAY;MACZ,mBAAmB;MACnB,mBAAmB;MACnB,eAAe,EAAA;EAIjB;IACC,kBAAkB;IAClB,aAAa;IACb,sBAAsB;IACtB,eAAe;IACf,wBAAwB,EAAA;EAGzB;IACC,yBAAyB;IACzB,mBAAmB,EAAA;;AAKtB;EACC,yBAAyB;EACzB,mBAAmB,EAAA","sourcesContent":[".tree{\r\n\tposition: relative;\r\n\twidth: 100%;\r\n\theight: 100%;\r\n\tbackground: #27192f;\r\n\tborder-radius: 5px;\r\n\tpadding: 10px 10px 10px 10px;\r\n\r\n\t&-add-wrap{\r\n\t\tposition: relative;\r\n\t}\r\n\r\n\t&-add{\r\n\t\tposition: relative;\r\n\t\tdisplay: flex;\r\n\t\tbackground: #3e294b;\r\n\t\talign-items: center;\r\n\t\twidth: fit-content;\r\n\t\tpadding: 5px 7px 5px 8px;\r\n\t\tborder-radius: 15px;\r\n\t\tcursor: pointer;\r\n\t\tborder: 1px solid #4b335b;\r\n\r\n\t\t&-text{\r\n\t\t\tposition: relative;\r\n\t\t\tfont-family: \"Roboto\";\r\n\t\t\tfont-size: 15px;\r\n\t\t\tmargin-right: 6px;\r\n\t\t\tcolor: #ffffff;\r\n\t\t\ttext-shadow: 0px 0px 0px #563789;\r\n\t\t}\r\n\t\t&-btn{\r\n\t\t\tposition: relative;\r\n\t\t\tbackground: #503d65;\r\n\t\t\tpadding: 0px 5px 0px 5px;\r\n\t\t\tborder-radius: 100%;\r\n\t\t\tcolor: white;\r\n\t\t\tfont-family: 'Roboto';\r\n\t\t}\r\n\t}\r\n\r\n\t&-body{\r\n\t\tposition: relative;\r\n\t\tmargin-top: 17px;\r\n\t\tpadding: 3px 4px 5px 3px;\r\n\t\tborder-radius: 7px;\r\n\t\toverflow: auto;\r\n\t\tmax-height: 800px;\r\n\t}\r\n\r\n\t\t&-title{\r\n\t\t\tposition: relative;\r\n\t\t\tdisplay: flex;\r\n\r\n\t\t\t&-text{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\tfont-size: 15px;\r\n\t\t\t\tmargin: 0px 5px 0px 5px;\r\n\t\t\t}\r\n\t\t\t&-add{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\tfont-size: 16px;\r\n\t\t\t\tbackground: #3f3f5b;\r\n\t\t\t\tborder-radius: 100%;\r\n\t\t\t\twidth: 18px;\r\n\t\t\t\theight: 18px;\r\n\t\t\t\tdisplay: flex;\r\n\t\t\t\tjustify-content: center;\r\n\t\t\t\tcolor: white;\r\n\t\t\t\tcursor: pointer;\r\n\t\t\t}\r\n\t\t\t&-arr{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\tfont-size: 13px;\r\n\t\t\t\tbackground: #5d5d83;\r\n\t\t\t\tborder-radius: 100%;\r\n\t\t\t\twidth: 18px;\r\n\t\t\t\theight: 18px;\r\n\t\t\t\tdisplay: flex;\r\n\t\t\t\tjustify-content: center;\r\n\t\t\t\tcolor: white;\r\n\t\t\t\tcursor: pointer;\r\n\t\t\t}\r\n\t\t}\r\n\r\n\t\t&-child{\r\n\t\t\tposition: relative;\r\n\t\t\tmargin-bottom: 3px;\r\n\t\t\tdisplay: flex;\r\n\t\t\tflex-direction: column;\r\n\r\n\t\t\t&-expand{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\twidth: 18px;\r\n\t\t\t\theight: 18px;\r\n\t\t\t\tbackground: #e2e6ff;\r\n\t\t\t\tborder-radius: 100%;\r\n\t\t\t\tcolor: gray;\r\n\t\t\t\tdisplay: flex;\r\n\t\t\t\tfont-size: 17px;\r\n\t\t\t\talign-items: flex-end;\r\n\t\t\t\tjustify-content: center;\r\n\t\t\t\tmargin-right: 4px;\r\n\t\t\t\tcursor: pointer;\r\n\t\t\t}\r\n\r\n\t\t\t&-text{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\tmargin-right: 5px;\r\n\t\t\t}\r\n\r\n\t\t\t&-wrap{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\tdisplay: flex;\r\n\t\t\t\talign-items: center;\r\n\t\t\t\tbackground: #2a1c33;\r\n\t\t\t\tborder-radius: 2px;\r\n\t\t\t\tpadding: 3px 0px 3px 5px;\r\n\t\t\t\tcolor: #d6d5ff;\r\n\t\t\t\tfont-family: 'Roboto';\r\n\t\t\t\tfont-size: 15px;\r\n\t\t\t\tborder: 1px solid #2e1d39;\r\n\t\t\t}\r\n\t\t}\r\n\r\n\t\t.child-btn{\r\n\t\t\tposition: relative;\r\n\t\t\tdisplay: flex;\r\n\r\n\t\t\t&-add{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\twidth: 13px;\r\n\t\t\t\theight: 13px;\r\n\t\t\t\tline-height: 13px;\r\n\t\t\t\ttext-align: center;\r\n\t\t\t\tfont-size: 11px;\r\n\t\t\t\tborder-radius: 4px;\r\n\t\t\t\tmargin-right: 4px;\r\n\t\t\t\tbackground: #d9d2ff70;\r\n\t\t\t\tcursor: pointer;\r\n\t\t\t}\r\n\t\t\t&-remove{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\twidth: 13px;\r\n\t\t\t\theight: 13px;\r\n\t\t\t\tbackground: #3a3856;\r\n\t\t\t\tline-height: 10px;\r\n\t\t\t\ttext-align: center;\r\n\t\t\t\tfont-size: 15px;\r\n\t\t\t\tborder-radius: 4px;\r\n\t\t\t\tcursor: pointer;\r\n\t\t\t\tborder: 1px solid #494e6f;\r\n\t\t\t\tmargin-right: 4px;\r\n\t\t\t}\r\n\t\t\t&-change{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\twidth: 13px;\r\n\t\t\t\theight: 13px;\r\n\t\t\t\tbackground: #56151e;\r\n\t\t\t\tborder-radius: 100%;\r\n\t\t\t\tcursor: pointer;\r\n\t\t\t}\r\n\t\t}\r\n\r\n\t\t&-children{\r\n\t\t\tposition: relative;\r\n\t\t\tdisplay: flex;\r\n\t\t\tflex-direction: column;\r\n\t\t\tmargin-top: 2px;\r\n\t\t\tpadding: 0px 0px 0px 0px;\r\n\t\t}\r\n\r\n\t\t&-children > div{\r\n\t\t\tpadding: 0px 0px 0px 10px;\r\n\t\t\tbackground: #291b31;\r\n\t\t}\r\n\r\n}\r\n\r\n.arrow-down{\r\n\ttransform: rotate(180deg);\r\n\tbackground: #1f1f3b;\r\n}\r\n\r\n\r\n//#dfd9f3, #9899c7, #56577b, #2f2f49"],"sourceRoot":""}]);
+.expand-arrow {
+  transform: rotate(180deg); }
+`, "",{"version":3,"sources":["webpack://./source/components/Tree/styles/tree.scss"],"names":[],"mappings":"AAAA;EACC,kBAAkB;EAClB,WAAW;EACX,YAAY;EACZ,mBAAmB;EACnB,kBAAkB;EAClB,4BAA4B,EAAA;EAE5B;IACC,kBAAkB,EAAA;EAGnB;IACC,kBAAkB;IAClB,aAAa;IACb,mBAAmB;IACnB,mBAAmB;IACnB,kBAAkB;IAClB,wBAAwB;IACxB,mBAAmB;IACnB,eAAe;IACf,yBAAyB,EAAA;IAEzB;MACC,kBAAkB;MAClB,qBAAqB;MACrB,eAAe;MACf,iBAAiB;MACjB,cAAc;MACd,gCAAgC,EAAA;IAEjC;MACC,kBAAkB;MAClB,mBAAmB;MACnB,wBAAwB;MACxB,mBAAmB;MACnB,YAAY;MACZ,qBAAqB,EAAA;EAIvB;IACC,kBAAkB;IAClB,gBAAgB;IAChB,wBAAwB;IACxB,kBAAkB;IAClB,cAAc;IACd,iBAAiB,EAAA;EAGjB;IACC,kBAAkB;IAClB,aAAa,EAAA;IAEb;MACC,kBAAkB;MAClB,eAAe;MACf,uBAAuB,EAAA;IAExB;MACC,kBAAkB;MAClB,eAAe;MACf,mBAAmB;MACnB,mBAAmB;MACnB,WAAW;MACX,YAAY;MACZ,aAAa;MACb,uBAAuB;MACvB,YAAY;MACZ,eAAe,EAAA;IAEhB;MACC,kBAAkB;MAClB,eAAe;MACf,mBAAmB;MACnB,mBAAmB;MACnB,WAAW;MACX,YAAY;MACZ,aAAa;MACb,uBAAuB;MACvB,YAAY;MACZ,eAAe,EAAA;EAIjB;IACC,kBAAkB;IAClB,kBAAkB;IAClB,aAAa;IACb,sBAAsB,EAAA;IAEtB;MACC,kBAAkB;MAClB,WAAW;MACX,YAAY;MACZ,mBAAmB;MACnB,mBAAmB;MACnB,WAAW;MACX,aAAa;MACb,eAAe;MACf,qBAAqB;MACrB,uBAAuB;MACvB,iBAAiB;MACjB,eAAe,EAAA;IAGhB;MACC,kBAAkB;MAClB,iBAAiB,EAAA;IAGlB;MACC,kBAAkB;MAClB,aAAa;MACb,mBAAmB;MACnB,mBAAmB;MACnB,kBAAkB;MAClB,wBAAwB;MACxB,cAAc;MACd,qBAAqB;MACrB,eAAe;MACf,yBAAyB,EAAA;EAzH7B;IA8HG,kBAAkB;IAClB,aAAa,EAAA;IA/HhB;MAkII,kBAAkB;MAClB,WAAW;MACX,YAAY;MACZ,iBAAiB;MACjB,kBAAkB;MAClB,eAAe;MACf,kBAAkB;MAClB,iBAAiB;MACjB,qBAAqB;MACrB,eAAe,EAAA;IA3InB;MA8II,kBAAkB;MAClB,WAAW;MACX,YAAY;MACZ,mBAAmB;MACnB,iBAAiB;MACjB,kBAAkB;MAClB,eAAe;MACf,kBAAkB;MAClB,eAAe;MACf,yBAAyB;MACzB,iBAAiB,EAAA;IAxJrB;MA2JI,kBAAkB;MAClB,WAAW;MACX,YAAY;MACZ,mBAAmB;MACnB,mBAAmB;MACnB,eAAe,EAAA;EAIjB;IACC,kBAAkB;IAClB,aAAa;IACb,sBAAsB;IACtB,eAAe;IACf,wBAAwB,EAAA;EAGzB;IACC,yBAAyB;IACzB,mBAAmB,EAAA;;AAItB;EACC,yBAAyB,EAAA","sourcesContent":[".tree{\r\n\tposition: relative;\r\n\twidth: 100%;\r\n\theight: 100%;\r\n\tbackground: #27192f;\r\n\tborder-radius: 5px;\r\n\tpadding: 10px 10px 10px 10px;\r\n\r\n\t&-add-wrap{\r\n\t\tposition: relative;\r\n\t}\r\n\r\n\t&-add{\r\n\t\tposition: relative;\r\n\t\tdisplay: flex;\r\n\t\tbackground: #30203b;\r\n\t\talign-items: center;\r\n\t\twidth: fit-content;\r\n\t\tpadding: 5px 4px 5px 8px;\r\n\t\tborder-radius: 15px;\r\n\t\tcursor: pointer;\r\n\t\tborder: 1px solid #3c254d;\r\n\r\n\t\t&-text{\r\n\t\t\tposition: relative;\r\n\t\t\tfont-family: 'Roboto';\r\n\t\t\tfont-size: 14px;\r\n\t\t\tmargin-right: 6px;\r\n\t\t\tcolor: #ffffff;\r\n\t\t\ttext-shadow: 0px 0px 0px #563789;\r\n\t\t}\r\n\t\t&-btn{\r\n\t\t\tposition: relative;\r\n\t\t\tbackground: #503d65;\r\n\t\t\tpadding: 0px 5px 0px 5px;\r\n\t\t\tborder-radius: 100%;\r\n\t\t\tcolor: white;\r\n\t\t\tfont-family: 'Roboto';\r\n\t\t}\r\n\t}\r\n\r\n\t&-body{\r\n\t\tposition: relative;\r\n\t\tmargin-top: 40px;\r\n\t\tpadding: 3px 4px 5px 3px;\r\n\t\tborder-radius: 7px;\r\n\t\toverflow: auto;\r\n\t\tmax-height: 800px;\r\n\t}\r\n\r\n\t\t&-title{\r\n\t\t\tposition: relative;\r\n\t\t\tdisplay: flex;\r\n\r\n\t\t\t&-text{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\tfont-size: 15px;\r\n\t\t\t\tmargin: 0px 5px 0px 5px;\r\n\t\t\t}\r\n\t\t\t&-add{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\tfont-size: 16px;\r\n\t\t\t\tbackground: #3f3f5b;\r\n\t\t\t\tborder-radius: 100%;\r\n\t\t\t\twidth: 18px;\r\n\t\t\t\theight: 18px;\r\n\t\t\t\tdisplay: flex;\r\n\t\t\t\tjustify-content: center;\r\n\t\t\t\tcolor: white;\r\n\t\t\t\tcursor: pointer;\r\n\t\t\t}\r\n\t\t\t&-arr{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\tfont-size: 13px;\r\n\t\t\t\tbackground: #5d5d83;\r\n\t\t\t\tborder-radius: 100%;\r\n\t\t\t\twidth: 18px;\r\n\t\t\t\theight: 18px;\r\n\t\t\t\tdisplay: flex;\r\n\t\t\t\tjustify-content: center;\r\n\t\t\t\tcolor: white;\r\n\t\t\t\tcursor: pointer;\r\n\t\t\t}\r\n\t\t}\r\n\r\n\t\t&-child{\r\n\t\t\tposition: relative;\r\n\t\t\tmargin-bottom: 3px;\r\n\t\t\tdisplay: flex;\r\n\t\t\tflex-direction: column;\r\n\r\n\t\t\t&-expand{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\twidth: 18px;\r\n\t\t\t\theight: 18px;\r\n\t\t\t\tbackground: #e2e6ff;\r\n\t\t\t\tborder-radius: 100%;\r\n\t\t\t\tcolor: gray;\r\n\t\t\t\tdisplay: flex;\r\n\t\t\t\tfont-size: 17px;\r\n\t\t\t\talign-items: flex-end;\r\n\t\t\t\tjustify-content: center;\r\n\t\t\t\tmargin-right: 4px;\r\n\t\t\t\tcursor: pointer;\r\n\t\t\t}\r\n\r\n\t\t\t&-text{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\tmargin-right: 5px;\r\n\t\t\t}\r\n\r\n\t\t\t&-wrap{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\tdisplay: flex;\r\n\t\t\t\talign-items: center;\r\n\t\t\t\tbackground: #2a1c33;\r\n\t\t\t\tborder-radius: 2px;\r\n\t\t\t\tpadding: 3px 0px 3px 5px;\r\n\t\t\t\tcolor: #d6d5ff;\r\n\t\t\t\tfont-family: 'Roboto';\r\n\t\t\t\tfont-size: 15px;\r\n\t\t\t\tborder: 1px solid #2e1d39;\r\n\t\t\t}\r\n\t\t}\r\n\r\n\t\t.child-btn{\r\n\t\t\tposition: relative;\r\n\t\t\tdisplay: flex;\r\n\r\n\t\t\t&-add{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\twidth: 13px;\r\n\t\t\t\theight: 13px;\r\n\t\t\t\tline-height: 13px;\r\n\t\t\t\ttext-align: center;\r\n\t\t\t\tfont-size: 11px;\r\n\t\t\t\tborder-radius: 4px;\r\n\t\t\t\tmargin-right: 4px;\r\n\t\t\t\tbackground: #d9d2ff70;\r\n\t\t\t\tcursor: pointer;\r\n\t\t\t}\r\n\t\t\t&-remove{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\twidth: 13px;\r\n\t\t\t\theight: 13px;\r\n\t\t\t\tbackground: #3a3856;\r\n\t\t\t\tline-height: 10px;\r\n\t\t\t\ttext-align: center;\r\n\t\t\t\tfont-size: 15px;\r\n\t\t\t\tborder-radius: 4px;\r\n\t\t\t\tcursor: pointer;\r\n\t\t\t\tborder: 1px solid #494e6f;\r\n\t\t\t\tmargin-right: 4px;\r\n\t\t\t}\r\n\t\t\t&-change{\r\n\t\t\t\tposition: relative;\r\n\t\t\t\twidth: 13px;\r\n\t\t\t\theight: 13px;\r\n\t\t\t\tbackground: #56151e;\r\n\t\t\t\tborder-radius: 100%;\r\n\t\t\t\tcursor: pointer;\r\n\t\t\t}\r\n\t\t}\r\n\r\n\t\t&-children{\r\n\t\t\tposition: relative;\r\n\t\t\tdisplay: flex;\r\n\t\t\tflex-direction: column;\r\n\t\t\tmargin-top: 2px;\r\n\t\t\tpadding: 0px 0px 0px 0px;\r\n\t\t}\r\n\r\n\t\t&-children > div{\r\n\t\t\tpadding: 0px 0px 0px 10px;\r\n\t\t\tbackground: #291b31;\r\n\t\t}\r\n\r\n}\r\n.expand-arrow{\r\n\ttransform: rotate(180deg);\r\n\t//background: #1f1f3b;\r\n}\r\n\r\n\r\n//#dfd9f3, #9899c7, #56577b, #2f2f49"],"sourceRoot":""}]);
+// Exports
+/* harmony default export */ const __WEBPACK_DEFAULT_EXPORT__ = (___CSS_LOADER_EXPORT___);
+
+
+/***/ }),
+
+/***/ "./node_modules/css-loader/dist/cjs.js!./node_modules/sass-loader/dist/cjs.js!./source/components/canvas.scss":
+/*!********************************************************************************************************************!*\
+  !*** ./node_modules/css-loader/dist/cjs.js!./node_modules/sass-loader/dist/cjs.js!./source/components/canvas.scss ***!
+  \********************************************************************************************************************/
+/***/ ((module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   "default": () => (__WEBPACK_DEFAULT_EXPORT__)
+/* harmony export */ });
+/* harmony import */ var _node_modules_css_loader_dist_runtime_sourceMaps_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ../../node_modules/css-loader/dist/runtime/sourceMaps.js */ "./node_modules/css-loader/dist/runtime/sourceMaps.js");
+/* harmony import */ var _node_modules_css_loader_dist_runtime_sourceMaps_js__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__webpack_require__.n(_node_modules_css_loader_dist_runtime_sourceMaps_js__WEBPACK_IMPORTED_MODULE_0__);
+/* harmony import */ var _node_modules_css_loader_dist_runtime_api_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! ../../node_modules/css-loader/dist/runtime/api.js */ "./node_modules/css-loader/dist/runtime/api.js");
+/* harmony import */ var _node_modules_css_loader_dist_runtime_api_js__WEBPACK_IMPORTED_MODULE_1___default = /*#__PURE__*/__webpack_require__.n(_node_modules_css_loader_dist_runtime_api_js__WEBPACK_IMPORTED_MODULE_1__);
+// Imports
+
+
+var ___CSS_LOADER_EXPORT___ = _node_modules_css_loader_dist_runtime_api_js__WEBPACK_IMPORTED_MODULE_1___default()((_node_modules_css_loader_dist_runtime_sourceMaps_js__WEBPACK_IMPORTED_MODULE_0___default()));
+// Module
+___CSS_LOADER_EXPORT___.push([module.id, `.canvas {
+  position: relative; }
+  .canvas-point {
+    position: absolute;
+    left: 0px;
+    top: 0px; }
+    .canvas-point-dot {
+      width: 4px;
+      height: 4px;
+      margin-left: -2px;
+      margin-top: -2px;
+      background-color: #538cff;
+      position: absolute; }
+    .canvas-point-tooltip {
+      position: absolute;
+      background-color: aliceblue;
+      padding: 4px;
+      margin-left: 5px;
+      border-radius: 4px; }
+`, "",{"version":3,"sources":["webpack://./source/components/canvas.scss"],"names":[],"mappings":"AAAA;EAEC,kBAAkB,EAAA;EAElB;IACC,kBAAkB;IAClB,SAAS;IACT,QAAQ,EAAA;IAER;MACC,UAAU;MACV,WAAW;MACX,iBAAiB;MACjB,gBAAgB;MAChB,yBAAyB;MACzB,kBAAkB,EAAA;IAEnB;MACC,kBAAkB;MAClB,2BAA2B;MAC3B,YAAY;MACZ,gBAAgB;MAChB,kBAAkB,EAAA","sourcesContent":[".canvas{\r\n\r\n\tposition: relative;\r\n\r\n\t&-point{\r\n\t\tposition: absolute;\r\n\t\tleft: 0px;\r\n\t\ttop: 0px;\r\n\r\n\t\t&-dot{\r\n\t\t\twidth: 4px;\r\n\t\t\theight: 4px;\r\n\t\t\tmargin-left: -2px;\r\n\t\t\tmargin-top: -2px;\r\n\t\t\tbackground-color: #538cff;\r\n\t\t\tposition: absolute;\r\n\t\t}\r\n\t\t&-tooltip{\r\n\t\t\tposition: absolute;\r\n\t\t\tbackground-color: aliceblue;\r\n\t\t\tpadding: 4px;\r\n\t\t\tmargin-left: 5px;\r\n\t\t\tborder-radius: 4px;\r\n\t\t}\r\n\r\n\t}\r\n\r\n}\r\n"],"sourceRoot":""}]);
 // Exports
 /* harmony default export */ const __WEBPACK_DEFAULT_EXPORT__ = (___CSS_LOADER_EXPORT___);
 
@@ -37461,85 +39184,91 @@ if (false) {} else {
   \*****************************************************/
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
+var react_dom__WEBPACK_IMPORTED_MODULE_1___namespace_cache;
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   AbortedDeferredError: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_1__.AbortedDeferredError),
-/* harmony export */   Await: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_2__.Await),
+/* harmony export */   AbortedDeferredError: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_2__.AbortedDeferredError),
+/* harmony export */   Await: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_3__.Await),
 /* harmony export */   BrowserRouter: () => (/* binding */ BrowserRouter),
 /* harmony export */   Form: () => (/* binding */ Form),
 /* harmony export */   HashRouter: () => (/* binding */ HashRouter),
 /* harmony export */   Link: () => (/* binding */ Link),
-/* harmony export */   MemoryRouter: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_2__.MemoryRouter),
+/* harmony export */   MemoryRouter: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_3__.MemoryRouter),
 /* harmony export */   NavLink: () => (/* binding */ NavLink),
-/* harmony export */   Navigate: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_2__.Navigate),
-/* harmony export */   NavigationType: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_1__.Action),
-/* harmony export */   Outlet: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_2__.Outlet),
-/* harmony export */   Route: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_2__.Route),
-/* harmony export */   Router: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_2__.Router),
-/* harmony export */   RouterProvider: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_2__.RouterProvider),
-/* harmony export */   Routes: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_2__.Routes),
+/* harmony export */   Navigate: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_3__.Navigate),
+/* harmony export */   NavigationType: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_2__.Action),
+/* harmony export */   Outlet: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_3__.Outlet),
+/* harmony export */   Route: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_3__.Route),
+/* harmony export */   Router: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_3__.Router),
+/* harmony export */   RouterProvider: () => (/* binding */ RouterProvider),
+/* harmony export */   Routes: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_3__.Routes),
 /* harmony export */   ScrollRestoration: () => (/* binding */ ScrollRestoration),
-/* harmony export */   UNSAFE_DataRouterContext: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_2__.UNSAFE_DataRouterContext),
-/* harmony export */   UNSAFE_DataRouterStateContext: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_2__.UNSAFE_DataRouterStateContext),
-/* harmony export */   UNSAFE_LocationContext: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_2__.UNSAFE_LocationContext),
-/* harmony export */   UNSAFE_NavigationContext: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_2__.UNSAFE_NavigationContext),
-/* harmony export */   UNSAFE_RouteContext: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_2__.UNSAFE_RouteContext),
-/* harmony export */   UNSAFE_useRouteId: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_2__.UNSAFE_useRouteId),
+/* harmony export */   UNSAFE_DataRouterContext: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_3__.UNSAFE_DataRouterContext),
+/* harmony export */   UNSAFE_DataRouterStateContext: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_3__.UNSAFE_DataRouterStateContext),
+/* harmony export */   UNSAFE_FetchersContext: () => (/* binding */ FetchersContext),
+/* harmony export */   UNSAFE_LocationContext: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_3__.UNSAFE_LocationContext),
+/* harmony export */   UNSAFE_NavigationContext: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_3__.UNSAFE_NavigationContext),
+/* harmony export */   UNSAFE_RouteContext: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_3__.UNSAFE_RouteContext),
+/* harmony export */   UNSAFE_ViewTransitionContext: () => (/* binding */ ViewTransitionContext),
+/* harmony export */   UNSAFE_useRouteId: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_3__.UNSAFE_useRouteId),
 /* harmony export */   UNSAFE_useScrollRestoration: () => (/* binding */ useScrollRestoration),
 /* harmony export */   createBrowserRouter: () => (/* binding */ createBrowserRouter),
 /* harmony export */   createHashRouter: () => (/* binding */ createHashRouter),
-/* harmony export */   createMemoryRouter: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_2__.createMemoryRouter),
-/* harmony export */   createPath: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_1__.createPath),
-/* harmony export */   createRoutesFromChildren: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_2__.createRoutesFromChildren),
-/* harmony export */   createRoutesFromElements: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_2__.createRoutesFromElements),
+/* harmony export */   createMemoryRouter: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_3__.createMemoryRouter),
+/* harmony export */   createPath: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_2__.createPath),
+/* harmony export */   createRoutesFromChildren: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_3__.createRoutesFromChildren),
+/* harmony export */   createRoutesFromElements: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_3__.createRoutesFromElements),
 /* harmony export */   createSearchParams: () => (/* binding */ createSearchParams),
-/* harmony export */   defer: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_1__.defer),
-/* harmony export */   generatePath: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_1__.generatePath),
-/* harmony export */   isRouteErrorResponse: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_1__.isRouteErrorResponse),
-/* harmony export */   json: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_1__.json),
-/* harmony export */   matchPath: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_1__.matchPath),
-/* harmony export */   matchRoutes: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_1__.matchRoutes),
-/* harmony export */   parsePath: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_1__.parsePath),
-/* harmony export */   redirect: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_1__.redirect),
-/* harmony export */   renderMatches: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_2__.renderMatches),
-/* harmony export */   resolvePath: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_1__.resolvePath),
+/* harmony export */   defer: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_2__.defer),
+/* harmony export */   generatePath: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_2__.generatePath),
+/* harmony export */   isRouteErrorResponse: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_2__.isRouteErrorResponse),
+/* harmony export */   json: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_2__.json),
+/* harmony export */   matchPath: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_2__.matchPath),
+/* harmony export */   matchRoutes: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_2__.matchRoutes),
+/* harmony export */   parsePath: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_2__.parsePath),
+/* harmony export */   redirect: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_2__.redirect),
+/* harmony export */   redirectDocument: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_2__.redirectDocument),
+/* harmony export */   renderMatches: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_3__.renderMatches),
+/* harmony export */   resolvePath: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_2__.resolvePath),
 /* harmony export */   unstable_HistoryRouter: () => (/* binding */ HistoryRouter),
-/* harmony export */   unstable_useBlocker: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_2__.unstable_useBlocker),
 /* harmony export */   unstable_usePrompt: () => (/* binding */ usePrompt),
-/* harmony export */   useActionData: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_2__.useActionData),
-/* harmony export */   useAsyncError: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_2__.useAsyncError),
-/* harmony export */   useAsyncValue: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_2__.useAsyncValue),
+/* harmony export */   unstable_useViewTransitionState: () => (/* binding */ useViewTransitionState),
+/* harmony export */   useActionData: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_3__.useActionData),
+/* harmony export */   useAsyncError: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_3__.useAsyncError),
+/* harmony export */   useAsyncValue: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_3__.useAsyncValue),
 /* harmony export */   useBeforeUnload: () => (/* binding */ useBeforeUnload),
+/* harmony export */   useBlocker: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_3__.useBlocker),
 /* harmony export */   useFetcher: () => (/* binding */ useFetcher),
 /* harmony export */   useFetchers: () => (/* binding */ useFetchers),
 /* harmony export */   useFormAction: () => (/* binding */ useFormAction),
-/* harmony export */   useHref: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_2__.useHref),
-/* harmony export */   useInRouterContext: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_2__.useInRouterContext),
+/* harmony export */   useHref: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_3__.useHref),
+/* harmony export */   useInRouterContext: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_3__.useInRouterContext),
 /* harmony export */   useLinkClickHandler: () => (/* binding */ useLinkClickHandler),
-/* harmony export */   useLoaderData: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_2__.useLoaderData),
-/* harmony export */   useLocation: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_2__.useLocation),
-/* harmony export */   useMatch: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_2__.useMatch),
-/* harmony export */   useMatches: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_2__.useMatches),
-/* harmony export */   useNavigate: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_2__.useNavigate),
-/* harmony export */   useNavigation: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_2__.useNavigation),
-/* harmony export */   useNavigationType: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_2__.useNavigationType),
-/* harmony export */   useOutlet: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_2__.useOutlet),
-/* harmony export */   useOutletContext: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_2__.useOutletContext),
-/* harmony export */   useParams: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_2__.useParams),
-/* harmony export */   useResolvedPath: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_2__.useResolvedPath),
-/* harmony export */   useRevalidator: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_2__.useRevalidator),
-/* harmony export */   useRouteError: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_2__.useRouteError),
-/* harmony export */   useRouteLoaderData: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_2__.useRouteLoaderData),
-/* harmony export */   useRoutes: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_2__.useRoutes),
+/* harmony export */   useLoaderData: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_3__.useLoaderData),
+/* harmony export */   useLocation: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_3__.useLocation),
+/* harmony export */   useMatch: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_3__.useMatch),
+/* harmony export */   useMatches: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_3__.useMatches),
+/* harmony export */   useNavigate: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_3__.useNavigate),
+/* harmony export */   useNavigation: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_3__.useNavigation),
+/* harmony export */   useNavigationType: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_3__.useNavigationType),
+/* harmony export */   useOutlet: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_3__.useOutlet),
+/* harmony export */   useOutletContext: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_3__.useOutletContext),
+/* harmony export */   useParams: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_3__.useParams),
+/* harmony export */   useResolvedPath: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_3__.useResolvedPath),
+/* harmony export */   useRevalidator: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_3__.useRevalidator),
+/* harmony export */   useRouteError: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_3__.useRouteError),
+/* harmony export */   useRouteLoaderData: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_3__.useRouteLoaderData),
+/* harmony export */   useRoutes: () => (/* reexport safe */ react_router__WEBPACK_IMPORTED_MODULE_3__.useRoutes),
 /* harmony export */   useSearchParams: () => (/* binding */ useSearchParams),
 /* harmony export */   useSubmit: () => (/* binding */ useSubmit)
 /* harmony export */ });
 /* harmony import */ var react__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! react */ "./node_modules/react/index.js");
 /* harmony import */ var react__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__webpack_require__.n(react__WEBPACK_IMPORTED_MODULE_0__);
-/* harmony import */ var react_router__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! react-router */ "./node_modules/react-router/dist/index.js");
-/* harmony import */ var react_router__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! @remix-run/router */ "./node_modules/@remix-run/router/dist/router.js");
+/* harmony import */ var react_dom__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! react-dom */ "./node_modules/react-dom/index.js");
+/* harmony import */ var react_router__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(/*! react-router */ "./node_modules/react-router/dist/index.js");
+/* harmony import */ var react_router__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! @remix-run/router */ "./node_modules/@remix-run/router/dist/router.js");
 /**
- * React Router DOM v6.14.2
+ * React Router DOM v6.22.2
  *
  * Copyright (c) Remix Software Inc.
  *
@@ -37548,6 +39277,7 @@ __webpack_require__.r(__webpack_exports__);
  *
  * @license MIT
  */
+
 
 
 
@@ -37638,13 +39368,18 @@ function createSearchParams(init) {
 function getSearchParamsForLocation(locationSearch, defaultSearchParams) {
   let searchParams = createSearchParams(locationSearch);
   if (defaultSearchParams) {
-    for (let key of defaultSearchParams.keys()) {
+    // Use `defaultSearchParams.forEach(...)` here instead of iterating of
+    // `defaultSearchParams.keys()` to work-around a bug in Firefox related to
+    // web extensions. Relevant Bugzilla tickets:
+    // https://bugzilla.mozilla.org/show_bug.cgi?id=1414602
+    // https://bugzilla.mozilla.org/show_bug.cgi?id=1023984
+    defaultSearchParams.forEach((_, key) => {
       if (!searchParams.has(key)) {
         defaultSearchParams.getAll(key).forEach(value => {
           searchParams.append(key, value);
         });
       }
-    }
+    });
   }
   return searchParams;
 }
@@ -37666,7 +39401,7 @@ function isFormDataSubmitterSupported() {
 const supportedFormEncTypes = new Set(["application/x-www-form-urlencoded", "multipart/form-data", "text/plain"]);
 function getFormEncType(encType) {
   if (encType != null && !supportedFormEncTypes.has(encType)) {
-     true ? (0,react_router__WEBPACK_IMPORTED_MODULE_1__.UNSAFE_warning)(false, "\"" + encType + "\" is not a valid `encType` for `<Form>`/`<fetcher.Form>` " + ("and will default to \"" + defaultEncType + "\"")) : 0;
+     true ? (0,react_router__WEBPACK_IMPORTED_MODULE_2__.UNSAFE_warning)(false, "\"" + encType + "\" is not a valid `encType` for `<Form>`/`<fetcher.Form>` " + ("and will default to \"" + defaultEncType + "\"")) : 0;
     return null;
   }
   return encType;
@@ -37682,7 +39417,7 @@ function getFormSubmissionInfo(target, basename) {
     // prefixed to ensure non-JS scenarios work, so strip it since we'll
     // re-prefix in the router
     let attr = target.getAttribute("action");
-    action = attr ? (0,react_router__WEBPACK_IMPORTED_MODULE_1__.stripBasename)(attr, basename) : null;
+    action = attr ? (0,react_router__WEBPACK_IMPORTED_MODULE_2__.stripBasename)(attr, basename) : null;
     method = target.getAttribute("method") || defaultMethod;
     encType = getFormEncType(target.getAttribute("enctype")) || defaultEncType;
     formData = new FormData(target);
@@ -37696,7 +39431,7 @@ function getFormSubmissionInfo(target, basename) {
     // prefixed to ensure non-JS scenarios work, so strip it since we'll
     // re-prefix in the router
     let attr = target.getAttribute("formaction") || form.getAttribute("action");
-    action = attr ? (0,react_router__WEBPACK_IMPORTED_MODULE_1__.stripBasename)(attr, basename) : null;
+    action = attr ? (0,react_router__WEBPACK_IMPORTED_MODULE_2__.stripBasename)(attr, basename) : null;
     method = target.getAttribute("formmethod") || form.getAttribute("method") || defaultMethod;
     encType = getFormEncType(target.getAttribute("formenctype")) || getFormEncType(form.getAttribute("enctype")) || defaultEncType;
     // Build a FormData object populated from a form and submitter
@@ -37741,35 +39476,52 @@ function getFormSubmissionInfo(target, basename) {
   };
 }
 
-const _excluded = ["onClick", "relative", "reloadDocument", "replace", "state", "target", "to", "preventScrollReset"],
-  _excluded2 = ["aria-current", "caseSensitive", "className", "end", "style", "to", "children"],
-  _excluded3 = ["reloadDocument", "replace", "state", "method", "action", "onSubmit", "submit", "relative", "preventScrollReset"];
+const _excluded = ["onClick", "relative", "reloadDocument", "replace", "state", "target", "to", "preventScrollReset", "unstable_viewTransition"],
+  _excluded2 = ["aria-current", "caseSensitive", "className", "end", "style", "to", "unstable_viewTransition", "children"],
+  _excluded3 = ["fetcherKey", "navigate", "reloadDocument", "replace", "state", "method", "action", "onSubmit", "relative", "preventScrollReset", "unstable_viewTransition"];
+// HEY YOU! DON'T TOUCH THIS VARIABLE!
+//
+// It is replaced with the proper version at build time via a babel plugin in
+// the rollup config.
+//
+// Export a global property onto the window for React Router detection by the
+// Core Web Vitals Technology Report.  This way they can configure the `wappalyzer`
+// to detect and properly classify live websites as being built with React Router:
+// https://github.com/HTTPArchive/wappalyzer/blob/main/src/technologies/r.json
+const REACT_ROUTER_VERSION = "6";
+try {
+  window.__reactRouterVersion = REACT_ROUTER_VERSION;
+} catch (e) {
+  // no-op
+}
 function createBrowserRouter(routes, opts) {
-  return (0,react_router__WEBPACK_IMPORTED_MODULE_1__.createRouter)({
+  return (0,react_router__WEBPACK_IMPORTED_MODULE_2__.createRouter)({
     basename: opts == null ? void 0 : opts.basename,
     future: _extends({}, opts == null ? void 0 : opts.future, {
       v7_prependBasename: true
     }),
-    history: (0,react_router__WEBPACK_IMPORTED_MODULE_1__.createBrowserHistory)({
+    history: (0,react_router__WEBPACK_IMPORTED_MODULE_2__.createBrowserHistory)({
       window: opts == null ? void 0 : opts.window
     }),
     hydrationData: (opts == null ? void 0 : opts.hydrationData) || parseHydrationData(),
     routes,
-    mapRouteProperties: react_router__WEBPACK_IMPORTED_MODULE_2__.UNSAFE_mapRouteProperties
+    mapRouteProperties: react_router__WEBPACK_IMPORTED_MODULE_3__.UNSAFE_mapRouteProperties,
+    window: opts == null ? void 0 : opts.window
   }).initialize();
 }
 function createHashRouter(routes, opts) {
-  return (0,react_router__WEBPACK_IMPORTED_MODULE_1__.createRouter)({
+  return (0,react_router__WEBPACK_IMPORTED_MODULE_2__.createRouter)({
     basename: opts == null ? void 0 : opts.basename,
     future: _extends({}, opts == null ? void 0 : opts.future, {
       v7_prependBasename: true
     }),
-    history: (0,react_router__WEBPACK_IMPORTED_MODULE_1__.createHashHistory)({
+    history: (0,react_router__WEBPACK_IMPORTED_MODULE_2__.createHashHistory)({
       window: opts == null ? void 0 : opts.window
     }),
     hydrationData: (opts == null ? void 0 : opts.hydrationData) || parseHydrationData(),
     routes,
-    mapRouteProperties: react_router__WEBPACK_IMPORTED_MODULE_2__.UNSAFE_mapRouteProperties
+    mapRouteProperties: react_router__WEBPACK_IMPORTED_MODULE_3__.UNSAFE_mapRouteProperties,
+    window: opts == null ? void 0 : opts.window
   }).initialize();
 }
 function parseHydrationData() {
@@ -37790,7 +39542,7 @@ function deserializeErrors(errors) {
     // Hey you!  If you change this, please change the corresponding logic in
     // serializeErrors in react-router-dom/server.tsx :)
     if (val && val.__type === "RouteErrorResponse") {
-      serialized[key] = new react_router__WEBPACK_IMPORTED_MODULE_1__.ErrorResponse(val.status, val.statusText, val.data, val.internal === true);
+      serialized[key] = new react_router__WEBPACK_IMPORTED_MODULE_2__.UNSAFE_ErrorResponseImpl(val.status, val.statusText, val.data, val.internal === true);
     } else if (val && val.__type === "Error") {
       // Attempt to reconstruct the right type of Error (i.e., ReferenceError)
       if (val.__subType) {
@@ -37821,6 +39573,16 @@ function deserializeErrors(errors) {
   }
   return serialized;
 }
+const ViewTransitionContext = /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0__.createContext({
+  isTransitioning: false
+});
+if (true) {
+  ViewTransitionContext.displayName = "ViewTransition";
+}
+const FetchersContext = /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0__.createContext(new Map());
+if (true) {
+  FetchersContext.displayName = "Fetchers";
+}
 //#endregion
 ////////////////////////////////////////////////////////////////////////////////
 //#region Components
@@ -37848,19 +39610,280 @@ function deserializeErrors(errors) {
 */
 const START_TRANSITION = "startTransition";
 const startTransitionImpl = react__WEBPACK_IMPORTED_MODULE_0__[START_TRANSITION];
+const FLUSH_SYNC = "flushSync";
+const flushSyncImpl = /*#__PURE__*/ (react_dom__WEBPACK_IMPORTED_MODULE_1___namespace_cache || (react_dom__WEBPACK_IMPORTED_MODULE_1___namespace_cache = __webpack_require__.t(react_dom__WEBPACK_IMPORTED_MODULE_1__, 2)))[FLUSH_SYNC];
+const USE_ID = "useId";
+const useIdImpl = react__WEBPACK_IMPORTED_MODULE_0__[USE_ID];
+function startTransitionSafe(cb) {
+  if (startTransitionImpl) {
+    startTransitionImpl(cb);
+  } else {
+    cb();
+  }
+}
+function flushSyncSafe(cb) {
+  if (flushSyncImpl) {
+    flushSyncImpl(cb);
+  } else {
+    cb();
+  }
+}
+class Deferred {
+  constructor() {
+    this.status = "pending";
+    this.promise = new Promise((resolve, reject) => {
+      this.resolve = value => {
+        if (this.status === "pending") {
+          this.status = "resolved";
+          resolve(value);
+        }
+      };
+      this.reject = reason => {
+        if (this.status === "pending") {
+          this.status = "rejected";
+          reject(reason);
+        }
+      };
+    });
+  }
+}
+/**
+ * Given a Remix Router instance, render the appropriate UI
+ */
+function RouterProvider(_ref) {
+  let {
+    fallbackElement,
+    router,
+    future
+  } = _ref;
+  let [state, setStateImpl] = react__WEBPACK_IMPORTED_MODULE_0__.useState(router.state);
+  let [pendingState, setPendingState] = react__WEBPACK_IMPORTED_MODULE_0__.useState();
+  let [vtContext, setVtContext] = react__WEBPACK_IMPORTED_MODULE_0__.useState({
+    isTransitioning: false
+  });
+  let [renderDfd, setRenderDfd] = react__WEBPACK_IMPORTED_MODULE_0__.useState();
+  let [transition, setTransition] = react__WEBPACK_IMPORTED_MODULE_0__.useState();
+  let [interruption, setInterruption] = react__WEBPACK_IMPORTED_MODULE_0__.useState();
+  let fetcherData = react__WEBPACK_IMPORTED_MODULE_0__.useRef(new Map());
+  let {
+    v7_startTransition
+  } = future || {};
+  let optInStartTransition = react__WEBPACK_IMPORTED_MODULE_0__.useCallback(cb => {
+    if (v7_startTransition) {
+      startTransitionSafe(cb);
+    } else {
+      cb();
+    }
+  }, [v7_startTransition]);
+  let setState = react__WEBPACK_IMPORTED_MODULE_0__.useCallback((newState, _ref2) => {
+    let {
+      deletedFetchers,
+      unstable_flushSync: flushSync,
+      unstable_viewTransitionOpts: viewTransitionOpts
+    } = _ref2;
+    deletedFetchers.forEach(key => fetcherData.current.delete(key));
+    newState.fetchers.forEach((fetcher, key) => {
+      if (fetcher.data !== undefined) {
+        fetcherData.current.set(key, fetcher.data);
+      }
+    });
+    let isViewTransitionUnavailable = router.window == null || typeof router.window.document.startViewTransition !== "function";
+    // If this isn't a view transition or it's not available in this browser,
+    // just update and be done with it
+    if (!viewTransitionOpts || isViewTransitionUnavailable) {
+      if (flushSync) {
+        flushSyncSafe(() => setStateImpl(newState));
+      } else {
+        optInStartTransition(() => setStateImpl(newState));
+      }
+      return;
+    }
+    // flushSync + startViewTransition
+    if (flushSync) {
+      // Flush through the context to mark DOM elements as transition=ing
+      flushSyncSafe(() => {
+        // Cancel any pending transitions
+        if (transition) {
+          renderDfd && renderDfd.resolve();
+          transition.skipTransition();
+        }
+        setVtContext({
+          isTransitioning: true,
+          flushSync: true,
+          currentLocation: viewTransitionOpts.currentLocation,
+          nextLocation: viewTransitionOpts.nextLocation
+        });
+      });
+      // Update the DOM
+      let t = router.window.document.startViewTransition(() => {
+        flushSyncSafe(() => setStateImpl(newState));
+      });
+      // Clean up after the animation completes
+      t.finished.finally(() => {
+        flushSyncSafe(() => {
+          setRenderDfd(undefined);
+          setTransition(undefined);
+          setPendingState(undefined);
+          setVtContext({
+            isTransitioning: false
+          });
+        });
+      });
+      flushSyncSafe(() => setTransition(t));
+      return;
+    }
+    // startTransition + startViewTransition
+    if (transition) {
+      // Interrupting an in-progress transition, cancel and let everything flush
+      // out, and then kick off a new transition from the interruption state
+      renderDfd && renderDfd.resolve();
+      transition.skipTransition();
+      setInterruption({
+        state: newState,
+        currentLocation: viewTransitionOpts.currentLocation,
+        nextLocation: viewTransitionOpts.nextLocation
+      });
+    } else {
+      // Completed navigation update with opted-in view transitions, let 'er rip
+      setPendingState(newState);
+      setVtContext({
+        isTransitioning: true,
+        flushSync: false,
+        currentLocation: viewTransitionOpts.currentLocation,
+        nextLocation: viewTransitionOpts.nextLocation
+      });
+    }
+  }, [router.window, transition, renderDfd, fetcherData, optInStartTransition]);
+  // Need to use a layout effect here so we are subscribed early enough to
+  // pick up on any render-driven redirects/navigations (useEffect/<Navigate>)
+  react__WEBPACK_IMPORTED_MODULE_0__.useLayoutEffect(() => router.subscribe(setState), [router, setState]);
+  // When we start a view transition, create a Deferred we can use for the
+  // eventual "completed" render
+  react__WEBPACK_IMPORTED_MODULE_0__.useEffect(() => {
+    if (vtContext.isTransitioning && !vtContext.flushSync) {
+      setRenderDfd(new Deferred());
+    }
+  }, [vtContext]);
+  // Once the deferred is created, kick off startViewTransition() to update the
+  // DOM and then wait on the Deferred to resolve (indicating the DOM update has
+  // happened)
+  react__WEBPACK_IMPORTED_MODULE_0__.useEffect(() => {
+    if (renderDfd && pendingState && router.window) {
+      let newState = pendingState;
+      let renderPromise = renderDfd.promise;
+      let transition = router.window.document.startViewTransition(async () => {
+        optInStartTransition(() => setStateImpl(newState));
+        await renderPromise;
+      });
+      transition.finished.finally(() => {
+        setRenderDfd(undefined);
+        setTransition(undefined);
+        setPendingState(undefined);
+        setVtContext({
+          isTransitioning: false
+        });
+      });
+      setTransition(transition);
+    }
+  }, [optInStartTransition, pendingState, renderDfd, router.window]);
+  // When the new location finally renders and is committed to the DOM, this
+  // effect will run to resolve the transition
+  react__WEBPACK_IMPORTED_MODULE_0__.useEffect(() => {
+    if (renderDfd && pendingState && state.location.key === pendingState.location.key) {
+      renderDfd.resolve();
+    }
+  }, [renderDfd, transition, state.location, pendingState]);
+  // If we get interrupted with a new navigation during a transition, we skip
+  // the active transition, let it cleanup, then kick it off again here
+  react__WEBPACK_IMPORTED_MODULE_0__.useEffect(() => {
+    if (!vtContext.isTransitioning && interruption) {
+      setPendingState(interruption.state);
+      setVtContext({
+        isTransitioning: true,
+        flushSync: false,
+        currentLocation: interruption.currentLocation,
+        nextLocation: interruption.nextLocation
+      });
+      setInterruption(undefined);
+    }
+  }, [vtContext.isTransitioning, interruption]);
+  react__WEBPACK_IMPORTED_MODULE_0__.useEffect(() => {
+     true ? (0,react_router__WEBPACK_IMPORTED_MODULE_2__.UNSAFE_warning)(fallbackElement == null || !router.future.v7_partialHydration, "`<RouterProvider fallbackElement>` is deprecated when using " + "`v7_partialHydration`, use a `HydrateFallback` component instead") : 0;
+    // Only log this once on initial mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  let navigator = react__WEBPACK_IMPORTED_MODULE_0__.useMemo(() => {
+    return {
+      createHref: router.createHref,
+      encodeLocation: router.encodeLocation,
+      go: n => router.navigate(n),
+      push: (to, state, opts) => router.navigate(to, {
+        state,
+        preventScrollReset: opts == null ? void 0 : opts.preventScrollReset
+      }),
+      replace: (to, state, opts) => router.navigate(to, {
+        replace: true,
+        state,
+        preventScrollReset: opts == null ? void 0 : opts.preventScrollReset
+      })
+    };
+  }, [router]);
+  let basename = router.basename || "/";
+  let dataRouterContext = react__WEBPACK_IMPORTED_MODULE_0__.useMemo(() => ({
+    router,
+    navigator,
+    static: false,
+    basename
+  }), [router, navigator, basename]);
+  // The fragment and {null} here are important!  We need them to keep React 18's
+  // useId happy when we are server-rendering since we may have a <script> here
+  // containing the hydrated server-side staticContext (from StaticRouterProvider).
+  // useId relies on the component tree structure to generate deterministic id's
+  // so we need to ensure it remains the same on the client even though
+  // we don't need the <script> tag
+  return /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0__.createElement(react__WEBPACK_IMPORTED_MODULE_0__.Fragment, null, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0__.createElement(react_router__WEBPACK_IMPORTED_MODULE_3__.UNSAFE_DataRouterContext.Provider, {
+    value: dataRouterContext
+  }, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0__.createElement(react_router__WEBPACK_IMPORTED_MODULE_3__.UNSAFE_DataRouterStateContext.Provider, {
+    value: state
+  }, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0__.createElement(FetchersContext.Provider, {
+    value: fetcherData.current
+  }, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0__.createElement(ViewTransitionContext.Provider, {
+    value: vtContext
+  }, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0__.createElement(react_router__WEBPACK_IMPORTED_MODULE_3__.Router, {
+    basename: basename,
+    location: state.location,
+    navigationType: state.historyAction,
+    navigator: navigator,
+    future: {
+      v7_relativeSplatPath: router.future.v7_relativeSplatPath
+    }
+  }, state.initialized || router.future.v7_partialHydration ? /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0__.createElement(DataRoutes, {
+    routes: router.routes,
+    future: router.future,
+    state: state
+  }) : fallbackElement))))), null);
+}
+function DataRoutes(_ref3) {
+  let {
+    routes,
+    future,
+    state
+  } = _ref3;
+  return (0,react_router__WEBPACK_IMPORTED_MODULE_3__.UNSAFE_useRoutesImpl)(routes, undefined, state, future);
+}
 /**
  * A `<Router>` for use in web browsers. Provides the cleanest URLs.
  */
-function BrowserRouter(_ref) {
+function BrowserRouter(_ref4) {
   let {
     basename,
     children,
     future,
     window
-  } = _ref;
+  } = _ref4;
   let historyRef = react__WEBPACK_IMPORTED_MODULE_0__.useRef();
   if (historyRef.current == null) {
-    historyRef.current = (0,react_router__WEBPACK_IMPORTED_MODULE_1__.createBrowserHistory)({
+    historyRef.current = (0,react_router__WEBPACK_IMPORTED_MODULE_2__.createBrowserHistory)({
       window,
       v5Compat: true
     });
@@ -37877,28 +39900,29 @@ function BrowserRouter(_ref) {
     v7_startTransition && startTransitionImpl ? startTransitionImpl(() => setStateImpl(newState)) : setStateImpl(newState);
   }, [setStateImpl, v7_startTransition]);
   react__WEBPACK_IMPORTED_MODULE_0__.useLayoutEffect(() => history.listen(setState), [history, setState]);
-  return /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0__.createElement(react_router__WEBPACK_IMPORTED_MODULE_2__.Router, {
+  return /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0__.createElement(react_router__WEBPACK_IMPORTED_MODULE_3__.Router, {
     basename: basename,
     children: children,
     location: state.location,
     navigationType: state.action,
-    navigator: history
+    navigator: history,
+    future: future
   });
 }
 /**
  * A `<Router>` for use in web browsers. Stores the location in the hash
  * portion of the URL so it is not sent to the server.
  */
-function HashRouter(_ref2) {
+function HashRouter(_ref5) {
   let {
     basename,
     children,
     future,
     window
-  } = _ref2;
+  } = _ref5;
   let historyRef = react__WEBPACK_IMPORTED_MODULE_0__.useRef();
   if (historyRef.current == null) {
-    historyRef.current = (0,react_router__WEBPACK_IMPORTED_MODULE_1__.createHashHistory)({
+    historyRef.current = (0,react_router__WEBPACK_IMPORTED_MODULE_2__.createHashHistory)({
       window,
       v5Compat: true
     });
@@ -37915,12 +39939,13 @@ function HashRouter(_ref2) {
     v7_startTransition && startTransitionImpl ? startTransitionImpl(() => setStateImpl(newState)) : setStateImpl(newState);
   }, [setStateImpl, v7_startTransition]);
   react__WEBPACK_IMPORTED_MODULE_0__.useLayoutEffect(() => history.listen(setState), [history, setState]);
-  return /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0__.createElement(react_router__WEBPACK_IMPORTED_MODULE_2__.Router, {
+  return /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0__.createElement(react_router__WEBPACK_IMPORTED_MODULE_3__.Router, {
     basename: basename,
     children: children,
     location: state.location,
     navigationType: state.action,
-    navigator: history
+    navigator: history,
+    future: future
   });
 }
 /**
@@ -37929,13 +39954,13 @@ function HashRouter(_ref2) {
  * two versions of the history library to your bundles unless you use the same
  * version of the history library that React Router uses internally.
  */
-function HistoryRouter(_ref3) {
+function HistoryRouter(_ref6) {
   let {
     basename,
     children,
     future,
     history
-  } = _ref3;
+  } = _ref6;
   let [state, setStateImpl] = react__WEBPACK_IMPORTED_MODULE_0__.useState({
     action: history.action,
     location: history.location
@@ -37947,12 +39972,13 @@ function HistoryRouter(_ref3) {
     v7_startTransition && startTransitionImpl ? startTransitionImpl(() => setStateImpl(newState)) : setStateImpl(newState);
   }, [setStateImpl, v7_startTransition]);
   react__WEBPACK_IMPORTED_MODULE_0__.useLayoutEffect(() => history.listen(setState), [history, setState]);
-  return /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0__.createElement(react_router__WEBPACK_IMPORTED_MODULE_2__.Router, {
+  return /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0__.createElement(react_router__WEBPACK_IMPORTED_MODULE_3__.Router, {
     basename: basename,
     children: children,
     location: state.location,
     navigationType: state.action,
-    navigator: history
+    navigator: history,
+    future: future
   });
 }
 if (true) {
@@ -37961,9 +39987,9 @@ if (true) {
 const isBrowser = typeof window !== "undefined" && typeof window.document !== "undefined" && typeof window.document.createElement !== "undefined";
 const ABSOLUTE_URL_REGEX = /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i;
 /**
- * The public API for rendering a history-aware <a>.
+ * The public API for rendering a history-aware `<a>`.
  */
-const Link = /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0__.forwardRef(function LinkWithRef(_ref4, ref) {
+const Link = /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0__.forwardRef(function LinkWithRef(_ref7, ref) {
   let {
       onClick,
       relative,
@@ -37972,12 +39998,13 @@ const Link = /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0__.forwardRef(function
       state,
       target,
       to,
-      preventScrollReset
-    } = _ref4,
-    rest = _objectWithoutPropertiesLoose(_ref4, _excluded);
+      preventScrollReset,
+      unstable_viewTransition
+    } = _ref7,
+    rest = _objectWithoutPropertiesLoose(_ref7, _excluded);
   let {
     basename
-  } = react__WEBPACK_IMPORTED_MODULE_0__.useContext(react_router__WEBPACK_IMPORTED_MODULE_2__.UNSAFE_NavigationContext);
+  } = react__WEBPACK_IMPORTED_MODULE_0__.useContext(react_router__WEBPACK_IMPORTED_MODULE_3__.UNSAFE_NavigationContext);
   // Rendered into <a href> for absolute URLs
   let absoluteHref;
   let isExternal = false;
@@ -37989,7 +40016,7 @@ const Link = /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0__.forwardRef(function
       try {
         let currentUrl = new URL(window.location.href);
         let targetUrl = to.startsWith("//") ? new URL(currentUrl.protocol + to) : new URL(to);
-        let path = (0,react_router__WEBPACK_IMPORTED_MODULE_1__.stripBasename)(targetUrl.pathname, basename);
+        let path = (0,react_router__WEBPACK_IMPORTED_MODULE_2__.stripBasename)(targetUrl.pathname, basename);
         if (targetUrl.origin === currentUrl.origin && path != null) {
           // Strip the protocol/origin/basename for same-origin absolute URLs
           to = path + targetUrl.search + targetUrl.hash;
@@ -37998,12 +40025,12 @@ const Link = /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0__.forwardRef(function
         }
       } catch (e) {
         // We can't do external URL detection without a valid URL
-         true ? (0,react_router__WEBPACK_IMPORTED_MODULE_1__.UNSAFE_warning)(false, "<Link to=\"" + to + "\"> contains an invalid URL which will probably break " + "when clicked - please update to a valid URL path.") : 0;
+         true ? (0,react_router__WEBPACK_IMPORTED_MODULE_2__.UNSAFE_warning)(false, "<Link to=\"" + to + "\"> contains an invalid URL which will probably break " + "when clicked - please update to a valid URL path.") : 0;
       }
     }
   }
   // Rendered into <a href> for relative URLs
-  let href = (0,react_router__WEBPACK_IMPORTED_MODULE_2__.useHref)(to, {
+  let href = (0,react_router__WEBPACK_IMPORTED_MODULE_3__.useHref)(to, {
     relative
   });
   let internalOnClick = useLinkClickHandler(to, {
@@ -38011,7 +40038,8 @@ const Link = /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0__.forwardRef(function
     state,
     target,
     preventScrollReset,
-    relative
+    relative,
+    unstable_viewTransition
   });
   function handleClick(event) {
     if (onClick) onClick(event);
@@ -38034,9 +40062,9 @@ if (true) {
   Link.displayName = "Link";
 }
 /**
- * A <Link> wrapper that knows if it's "active" or not.
+ * A `<Link>` wrapper that knows if it's "active" or not.
  */
-const NavLink = /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0__.forwardRef(function NavLinkWithRef(_ref5, ref) {
+const NavLink = /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0__.forwardRef(function NavLinkWithRef(_ref8, ref) {
   let {
       "aria-current": ariaCurrentProp = "page",
       caseSensitive = false,
@@ -38044,17 +40072,23 @@ const NavLink = /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0__.forwardRef(funct
       end = false,
       style: styleProp,
       to,
+      unstable_viewTransition,
       children
-    } = _ref5,
-    rest = _objectWithoutPropertiesLoose(_ref5, _excluded2);
-  let path = (0,react_router__WEBPACK_IMPORTED_MODULE_2__.useResolvedPath)(to, {
+    } = _ref8,
+    rest = _objectWithoutPropertiesLoose(_ref8, _excluded2);
+  let path = (0,react_router__WEBPACK_IMPORTED_MODULE_3__.useResolvedPath)(to, {
     relative: rest.relative
   });
-  let location = (0,react_router__WEBPACK_IMPORTED_MODULE_2__.useLocation)();
-  let routerState = react__WEBPACK_IMPORTED_MODULE_0__.useContext(react_router__WEBPACK_IMPORTED_MODULE_2__.UNSAFE_DataRouterStateContext);
+  let location = (0,react_router__WEBPACK_IMPORTED_MODULE_3__.useLocation)();
+  let routerState = react__WEBPACK_IMPORTED_MODULE_0__.useContext(react_router__WEBPACK_IMPORTED_MODULE_3__.UNSAFE_DataRouterStateContext);
   let {
-    navigator
-  } = react__WEBPACK_IMPORTED_MODULE_0__.useContext(react_router__WEBPACK_IMPORTED_MODULE_2__.UNSAFE_NavigationContext);
+    navigator,
+    basename
+  } = react__WEBPACK_IMPORTED_MODULE_0__.useContext(react_router__WEBPACK_IMPORTED_MODULE_3__.UNSAFE_NavigationContext);
+  let isTransitioning = routerState != null &&
+  // Conditional usage is OK here because the usage of a data router is static
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  useViewTransitionState(path) && unstable_viewTransition === true;
   let toPathname = navigator.encodeLocation ? navigator.encodeLocation(path).pathname : path.pathname;
   let locationPathname = location.pathname;
   let nextLocationPathname = routerState && routerState.navigation && routerState.navigation.location ? routerState.navigation.location.pathname : null;
@@ -38063,37 +40097,43 @@ const NavLink = /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0__.forwardRef(funct
     nextLocationPathname = nextLocationPathname ? nextLocationPathname.toLowerCase() : null;
     toPathname = toPathname.toLowerCase();
   }
-  let isActive = locationPathname === toPathname || !end && locationPathname.startsWith(toPathname) && locationPathname.charAt(toPathname.length) === "/";
+  if (nextLocationPathname && basename) {
+    nextLocationPathname = (0,react_router__WEBPACK_IMPORTED_MODULE_2__.stripBasename)(nextLocationPathname, basename) || nextLocationPathname;
+  }
+  // If the `to` has a trailing slash, look at that exact spot.  Otherwise,
+  // we're looking for a slash _after_ what's in `to`.  For example:
+  //
+  // <NavLink to="/users"> and <NavLink to="/users/">
+  // both want to look for a / at index 6 to match URL `/users/matt`
+  const endSlashPosition = toPathname !== "/" && toPathname.endsWith("/") ? toPathname.length - 1 : toPathname.length;
+  let isActive = locationPathname === toPathname || !end && locationPathname.startsWith(toPathname) && locationPathname.charAt(endSlashPosition) === "/";
   let isPending = nextLocationPathname != null && (nextLocationPathname === toPathname || !end && nextLocationPathname.startsWith(toPathname) && nextLocationPathname.charAt(toPathname.length) === "/");
+  let renderProps = {
+    isActive,
+    isPending,
+    isTransitioning
+  };
   let ariaCurrent = isActive ? ariaCurrentProp : undefined;
   let className;
   if (typeof classNameProp === "function") {
-    className = classNameProp({
-      isActive,
-      isPending
-    });
+    className = classNameProp(renderProps);
   } else {
     // If the className prop is not a function, we use a default `active`
     // class for <NavLink />s that are active. In v5 `active` was the default
     // value for `activeClassName`, but we are removing that API and can still
     // use the old default behavior for a cleaner upgrade path and keep the
     // simple styling rules working as they currently do.
-    className = [classNameProp, isActive ? "active" : null, isPending ? "pending" : null].filter(Boolean).join(" ");
+    className = [classNameProp, isActive ? "active" : null, isPending ? "pending" : null, isTransitioning ? "transitioning" : null].filter(Boolean).join(" ");
   }
-  let style = typeof styleProp === "function" ? styleProp({
-    isActive,
-    isPending
-  }) : styleProp;
+  let style = typeof styleProp === "function" ? styleProp(renderProps) : styleProp;
   return /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0__.createElement(Link, _extends({}, rest, {
     "aria-current": ariaCurrent,
     className: className,
     ref: ref,
     style: style,
-    to: to
-  }), typeof children === "function" ? children({
-    isActive,
-    isPending
-  }) : children);
+    to: to,
+    unstable_viewTransition: unstable_viewTransition
+  }), typeof children === "function" ? children(renderProps) : children);
 });
 if (true) {
   NavLink.displayName = "NavLink";
@@ -38104,33 +40144,26 @@ if (true) {
  * requests, allowing components to add nicer UX to the page as the form is
  * submitted and returns with data.
  */
-const Form = /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0__.forwardRef((props, ref) => {
-  let submit = useSubmit();
-  return /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0__.createElement(FormImpl, _extends({}, props, {
-    submit: submit,
-    ref: ref
-  }));
-});
-if (true) {
-  Form.displayName = "Form";
-}
-const FormImpl = /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0__.forwardRef((_ref6, forwardedRef) => {
+const Form = /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0__.forwardRef((_ref9, forwardedRef) => {
   let {
+      fetcherKey,
+      navigate,
       reloadDocument,
       replace,
       state,
       method = defaultMethod,
       action,
       onSubmit,
-      submit,
       relative,
-      preventScrollReset
-    } = _ref6,
-    props = _objectWithoutPropertiesLoose(_ref6, _excluded3);
-  let formMethod = method.toLowerCase() === "get" ? "get" : "post";
+      preventScrollReset,
+      unstable_viewTransition
+    } = _ref9,
+    props = _objectWithoutPropertiesLoose(_ref9, _excluded3);
+  let submit = useSubmit();
   let formAction = useFormAction(action, {
     relative
   });
+  let formMethod = method.toLowerCase() === "get" ? "get" : "post";
   let submitHandler = event => {
     onSubmit && onSubmit(event);
     if (event.defaultPrevented) return;
@@ -38138,11 +40171,14 @@ const FormImpl = /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0__.forwardRef((_re
     let submitter = event.nativeEvent.submitter;
     let submitMethod = (submitter == null ? void 0 : submitter.getAttribute("formmethod")) || method;
     submit(submitter || event.currentTarget, {
+      fetcherKey,
       method: submitMethod,
+      navigate,
       replace,
       state,
       relative,
-      preventScrollReset
+      preventScrollReset,
+      unstable_viewTransition
     });
   };
   return /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0__.createElement("form", _extends({
@@ -38153,17 +40189,17 @@ const FormImpl = /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0__.forwardRef((_re
   }, props));
 });
 if (true) {
-  FormImpl.displayName = "FormImpl";
+  Form.displayName = "Form";
 }
 /**
  * This component will emulate the browser's scroll restoration on location
  * changes.
  */
-function ScrollRestoration(_ref7) {
+function ScrollRestoration(_ref10) {
   let {
     getKey,
     storageKey
-  } = _ref7;
+  } = _ref10;
   useScrollRestoration({
     getKey,
     storageKey
@@ -38183,25 +40219,29 @@ var DataRouterHook;
   DataRouterHook["UseSubmit"] = "useSubmit";
   DataRouterHook["UseSubmitFetcher"] = "useSubmitFetcher";
   DataRouterHook["UseFetcher"] = "useFetcher";
+  DataRouterHook["useViewTransitionState"] = "useViewTransitionState";
 })(DataRouterHook || (DataRouterHook = {}));
 var DataRouterStateHook;
 (function (DataRouterStateHook) {
+  DataRouterStateHook["UseFetcher"] = "useFetcher";
   DataRouterStateHook["UseFetchers"] = "useFetchers";
   DataRouterStateHook["UseScrollRestoration"] = "useScrollRestoration";
 })(DataRouterStateHook || (DataRouterStateHook = {}));
+// Internal hooks
 function getDataRouterConsoleError(hookName) {
   return hookName + " must be used within a data router.  See https://reactrouter.com/routers/picking-a-router.";
 }
 function useDataRouterContext(hookName) {
-  let ctx = react__WEBPACK_IMPORTED_MODULE_0__.useContext(react_router__WEBPACK_IMPORTED_MODULE_2__.UNSAFE_DataRouterContext);
-  !ctx ?  true ? (0,react_router__WEBPACK_IMPORTED_MODULE_1__.UNSAFE_invariant)(false, getDataRouterConsoleError(hookName)) : 0 : void 0;
+  let ctx = react__WEBPACK_IMPORTED_MODULE_0__.useContext(react_router__WEBPACK_IMPORTED_MODULE_3__.UNSAFE_DataRouterContext);
+  !ctx ?  true ? (0,react_router__WEBPACK_IMPORTED_MODULE_2__.UNSAFE_invariant)(false, getDataRouterConsoleError(hookName)) : 0 : void 0;
   return ctx;
 }
 function useDataRouterState(hookName) {
-  let state = react__WEBPACK_IMPORTED_MODULE_0__.useContext(react_router__WEBPACK_IMPORTED_MODULE_2__.UNSAFE_DataRouterStateContext);
-  !state ?  true ? (0,react_router__WEBPACK_IMPORTED_MODULE_1__.UNSAFE_invariant)(false, getDataRouterConsoleError(hookName)) : 0 : void 0;
+  let state = react__WEBPACK_IMPORTED_MODULE_0__.useContext(react_router__WEBPACK_IMPORTED_MODULE_3__.UNSAFE_DataRouterStateContext);
+  !state ?  true ? (0,react_router__WEBPACK_IMPORTED_MODULE_2__.UNSAFE_invariant)(false, getDataRouterConsoleError(hookName)) : 0 : void 0;
   return state;
 }
+// External hooks
 /**
  * Handles the click behavior for router `<Link>` components. This is useful if
  * you need to create custom `<Link>` components with the same click behavior we
@@ -38213,11 +40253,12 @@ function useLinkClickHandler(to, _temp) {
     replace: replaceProp,
     state,
     preventScrollReset,
-    relative
+    relative,
+    unstable_viewTransition
   } = _temp === void 0 ? {} : _temp;
-  let navigate = (0,react_router__WEBPACK_IMPORTED_MODULE_2__.useNavigate)();
-  let location = (0,react_router__WEBPACK_IMPORTED_MODULE_2__.useLocation)();
-  let path = (0,react_router__WEBPACK_IMPORTED_MODULE_2__.useResolvedPath)(to, {
+  let navigate = (0,react_router__WEBPACK_IMPORTED_MODULE_3__.useNavigate)();
+  let location = (0,react_router__WEBPACK_IMPORTED_MODULE_3__.useLocation)();
+  let path = (0,react_router__WEBPACK_IMPORTED_MODULE_3__.useResolvedPath)(to, {
     relative
   });
   return react__WEBPACK_IMPORTED_MODULE_0__.useCallback(event => {
@@ -38225,31 +40266,32 @@ function useLinkClickHandler(to, _temp) {
       event.preventDefault();
       // If the URL hasn't changed, a regular <a> will do a replace instead of
       // a push, so do the same here unless the replace prop is explicitly set
-      let replace = replaceProp !== undefined ? replaceProp : (0,react_router__WEBPACK_IMPORTED_MODULE_1__.createPath)(location) === (0,react_router__WEBPACK_IMPORTED_MODULE_1__.createPath)(path);
+      let replace = replaceProp !== undefined ? replaceProp : (0,react_router__WEBPACK_IMPORTED_MODULE_2__.createPath)(location) === (0,react_router__WEBPACK_IMPORTED_MODULE_2__.createPath)(path);
       navigate(to, {
         replace,
         state,
         preventScrollReset,
-        relative
+        relative,
+        unstable_viewTransition
       });
     }
-  }, [location, navigate, path, replaceProp, state, target, to, preventScrollReset, relative]);
+  }, [location, navigate, path, replaceProp, state, target, to, preventScrollReset, relative, unstable_viewTransition]);
 }
 /**
  * A convenient wrapper for reading and writing search parameters via the
  * URLSearchParams interface.
  */
 function useSearchParams(defaultInit) {
-   true ? (0,react_router__WEBPACK_IMPORTED_MODULE_1__.UNSAFE_warning)(typeof URLSearchParams !== "undefined", "You cannot use the `useSearchParams` hook in a browser that does not " + "support the URLSearchParams API. If you need to support Internet " + "Explorer 11, we recommend you load a polyfill such as " + "https://github.com/ungap/url-search-params\n\n" + "If you're unsure how to load polyfills, we recommend you check out " + "https://polyfill.io/v3/ which provides some recommendations about how " + "to load polyfills only for users that need them, instead of for every " + "user.") : 0;
+   true ? (0,react_router__WEBPACK_IMPORTED_MODULE_2__.UNSAFE_warning)(typeof URLSearchParams !== "undefined", "You cannot use the `useSearchParams` hook in a browser that does not " + "support the URLSearchParams API. If you need to support Internet " + "Explorer 11, we recommend you load a polyfill such as " + "https://github.com/ungap/url-search-params\n\n" + "If you're unsure how to load polyfills, we recommend you check out " + "https://polyfill.io/v3/ which provides some recommendations about how " + "to load polyfills only for users that need them, instead of for every " + "user.") : 0;
   let defaultSearchParamsRef = react__WEBPACK_IMPORTED_MODULE_0__.useRef(createSearchParams(defaultInit));
   let hasSetSearchParamsRef = react__WEBPACK_IMPORTED_MODULE_0__.useRef(false);
-  let location = (0,react_router__WEBPACK_IMPORTED_MODULE_2__.useLocation)();
+  let location = (0,react_router__WEBPACK_IMPORTED_MODULE_3__.useLocation)();
   let searchParams = react__WEBPACK_IMPORTED_MODULE_0__.useMemo(() =>
   // Only merge in the defaults if we haven't yet called setSearchParams.
   // Once we call that we want those to take precedence, otherwise you can't
   // remove a param with setSearchParams({}) if it has an initial value
   getSearchParamsForLocation(location.search, hasSetSearchParamsRef.current ? null : defaultSearchParamsRef.current), [location.search]);
-  let navigate = (0,react_router__WEBPACK_IMPORTED_MODULE_2__.useNavigate)();
+  let navigate = (0,react_router__WEBPACK_IMPORTED_MODULE_3__.useNavigate)();
   let setSearchParams = react__WEBPACK_IMPORTED_MODULE_0__.useCallback((nextInit, navigateOptions) => {
     const newSearchParams = createSearchParams(typeof nextInit === "function" ? nextInit(searchParams) : nextInit);
     hasSetSearchParamsRef.current = true;
@@ -38262,6 +40304,8 @@ function validateClientSideSubmission() {
     throw new Error("You are calling submit during the server render. " + "Try calling submit within a `useEffect` or callback instead.");
   }
 }
+let fetcherId = 0;
+let getUniqueFetcherId = () => "__" + String(++fetcherId) + "__";
 /**
  * Returns a function that may be used to programmatically submit a form (or
  * some arbitrary data) to the server.
@@ -38272,8 +40316,8 @@ function useSubmit() {
   } = useDataRouterContext(DataRouterHook.UseSubmit);
   let {
     basename
-  } = react__WEBPACK_IMPORTED_MODULE_0__.useContext(react_router__WEBPACK_IMPORTED_MODULE_2__.UNSAFE_NavigationContext);
-  let currentRouteId = (0,react_router__WEBPACK_IMPORTED_MODULE_2__.UNSAFE_useRouteId)();
+  } = react__WEBPACK_IMPORTED_MODULE_0__.useContext(react_router__WEBPACK_IMPORTED_MODULE_3__.UNSAFE_NavigationContext);
+  let currentRouteId = (0,react_router__WEBPACK_IMPORTED_MODULE_3__.UNSAFE_useRouteId)();
   return react__WEBPACK_IMPORTED_MODULE_0__.useCallback(function (target, options) {
     if (options === void 0) {
       options = {};
@@ -38286,49 +40330,31 @@ function useSubmit() {
       formData,
       body
     } = getFormSubmissionInfo(target, basename);
-    router.navigate(options.action || action, {
-      preventScrollReset: options.preventScrollReset,
-      formData,
-      body,
-      formMethod: options.method || method,
-      formEncType: options.encType || encType,
-      replace: options.replace,
-      state: options.state,
-      fromRouteId: currentRouteId
-    });
+    if (options.navigate === false) {
+      let key = options.fetcherKey || getUniqueFetcherId();
+      router.fetch(key, currentRouteId, options.action || action, {
+        preventScrollReset: options.preventScrollReset,
+        formData,
+        body,
+        formMethod: options.method || method,
+        formEncType: options.encType || encType,
+        unstable_flushSync: options.unstable_flushSync
+      });
+    } else {
+      router.navigate(options.action || action, {
+        preventScrollReset: options.preventScrollReset,
+        formData,
+        body,
+        formMethod: options.method || method,
+        formEncType: options.encType || encType,
+        replace: options.replace,
+        state: options.state,
+        fromRouteId: currentRouteId,
+        unstable_flushSync: options.unstable_flushSync,
+        unstable_viewTransition: options.unstable_viewTransition
+      });
+    }
   }, [router, basename, currentRouteId]);
-}
-/**
- * Returns the implementation for fetcher.submit
- */
-function useSubmitFetcher(fetcherKey, fetcherRouteId) {
-  let {
-    router
-  } = useDataRouterContext(DataRouterHook.UseSubmitFetcher);
-  let {
-    basename
-  } = react__WEBPACK_IMPORTED_MODULE_0__.useContext(react_router__WEBPACK_IMPORTED_MODULE_2__.UNSAFE_NavigationContext);
-  return react__WEBPACK_IMPORTED_MODULE_0__.useCallback(function (target, options) {
-    if (options === void 0) {
-      options = {};
-    }
-    validateClientSideSubmission();
-    let {
-      action,
-      method,
-      encType,
-      formData,
-      body
-    } = getFormSubmissionInfo(target, basename);
-    !(fetcherRouteId != null) ?  true ? (0,react_router__WEBPACK_IMPORTED_MODULE_1__.UNSAFE_invariant)(false, "No routeId available for useFetcher()") : 0 : void 0;
-    router.fetch(fetcherKey, fetcherRouteId, options.action || action, {
-      preventScrollReset: options.preventScrollReset,
-      formData,
-      body,
-      formMethod: options.method || method,
-      formEncType: options.encType || encType
-    });
-  }, [router, basename, fetcherKey, fetcherRouteId]);
 }
 // v7: Eventually we should deprecate this entirely in favor of using the
 // router method directly?
@@ -38338,32 +40364,28 @@ function useFormAction(action, _temp2) {
   } = _temp2 === void 0 ? {} : _temp2;
   let {
     basename
-  } = react__WEBPACK_IMPORTED_MODULE_0__.useContext(react_router__WEBPACK_IMPORTED_MODULE_2__.UNSAFE_NavigationContext);
-  let routeContext = react__WEBPACK_IMPORTED_MODULE_0__.useContext(react_router__WEBPACK_IMPORTED_MODULE_2__.UNSAFE_RouteContext);
-  !routeContext ?  true ? (0,react_router__WEBPACK_IMPORTED_MODULE_1__.UNSAFE_invariant)(false, "useFormAction must be used inside a RouteContext") : 0 : void 0;
+  } = react__WEBPACK_IMPORTED_MODULE_0__.useContext(react_router__WEBPACK_IMPORTED_MODULE_3__.UNSAFE_NavigationContext);
+  let routeContext = react__WEBPACK_IMPORTED_MODULE_0__.useContext(react_router__WEBPACK_IMPORTED_MODULE_3__.UNSAFE_RouteContext);
+  !routeContext ?  true ? (0,react_router__WEBPACK_IMPORTED_MODULE_2__.UNSAFE_invariant)(false, "useFormAction must be used inside a RouteContext") : 0 : void 0;
   let [match] = routeContext.matches.slice(-1);
   // Shallow clone path so we can modify it below, otherwise we modify the
   // object referenced by useMemo inside useResolvedPath
-  let path = _extends({}, (0,react_router__WEBPACK_IMPORTED_MODULE_2__.useResolvedPath)(action ? action : ".", {
+  let path = _extends({}, (0,react_router__WEBPACK_IMPORTED_MODULE_3__.useResolvedPath)(action ? action : ".", {
     relative
   }));
-  // Previously we set the default action to ".". The problem with this is that
-  // `useResolvedPath(".")` excludes search params and the hash of the resolved
-  // URL. This is the intended behavior of when "." is specifically provided as
-  // the form action, but inconsistent w/ browsers when the action is omitted.
+  // If no action was specified, browsers will persist current search params
+  // when determining the path, so match that behavior
   // https://github.com/remix-run/remix/issues/927
-  let location = (0,react_router__WEBPACK_IMPORTED_MODULE_2__.useLocation)();
+  let location = (0,react_router__WEBPACK_IMPORTED_MODULE_3__.useLocation)();
   if (action == null) {
-    // Safe to write to these directly here since if action was undefined, we
+    // Safe to write to this directly here since if action was undefined, we
     // would have called useResolvedPath(".") which will never include a search
-    // or hash
     path.search = location.search;
-    path.hash = location.hash;
-    // When grabbing search params from the URL, remove the automatically
-    // inserted ?index param so we match the useResolvedPath search behavior
-    // which would not include ?index
-    if (match.route.index) {
-      let params = new URLSearchParams(path.search);
+    // When grabbing search params from the URL, remove any included ?index param
+    // since it might not apply to our contextual route.  We add it back based
+    // on match.route.index below
+    let params = new URLSearchParams(path.search);
+    if (params.has("index") && params.get("index") === "") {
       params.delete("index");
       path.search = params.toString() ? "?" + params.toString() : "";
     }
@@ -38376,66 +40398,86 @@ function useFormAction(action, _temp2) {
   // the raw basename which allows the basename to have full control over the
   // presence of a trailing slash on root actions
   if (basename !== "/") {
-    path.pathname = path.pathname === "/" ? basename : (0,react_router__WEBPACK_IMPORTED_MODULE_1__.joinPaths)([basename, path.pathname]);
+    path.pathname = path.pathname === "/" ? basename : (0,react_router__WEBPACK_IMPORTED_MODULE_2__.joinPaths)([basename, path.pathname]);
   }
-  return (0,react_router__WEBPACK_IMPORTED_MODULE_1__.createPath)(path);
+  return (0,react_router__WEBPACK_IMPORTED_MODULE_2__.createPath)(path);
 }
-function createFetcherForm(fetcherKey, routeId) {
-  let FetcherForm = /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0__.forwardRef((props, ref) => {
-    let submit = useSubmitFetcher(fetcherKey, routeId);
-    return /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0__.createElement(FormImpl, _extends({}, props, {
-      ref: ref,
-      submit: submit
-    }));
-  });
-  if (true) {
-    FetcherForm.displayName = "fetcher.Form";
-  }
-  return FetcherForm;
-}
-let fetcherId = 0;
+// TODO: (v7) Change the useFetcher generic default from `any` to `unknown`
 /**
  * Interacts with route loaders and actions without causing a navigation. Great
  * for any interaction that stays on the same page.
  */
-function useFetcher() {
+function useFetcher(_temp3) {
   var _route$matches;
+  let {
+    key
+  } = _temp3 === void 0 ? {} : _temp3;
   let {
     router
   } = useDataRouterContext(DataRouterHook.UseFetcher);
-  let route = react__WEBPACK_IMPORTED_MODULE_0__.useContext(react_router__WEBPACK_IMPORTED_MODULE_2__.UNSAFE_RouteContext);
-  !route ?  true ? (0,react_router__WEBPACK_IMPORTED_MODULE_1__.UNSAFE_invariant)(false, "useFetcher must be used inside a RouteContext") : 0 : void 0;
+  let state = useDataRouterState(DataRouterStateHook.UseFetcher);
+  let fetcherData = react__WEBPACK_IMPORTED_MODULE_0__.useContext(FetchersContext);
+  let route = react__WEBPACK_IMPORTED_MODULE_0__.useContext(react_router__WEBPACK_IMPORTED_MODULE_3__.UNSAFE_RouteContext);
   let routeId = (_route$matches = route.matches[route.matches.length - 1]) == null ? void 0 : _route$matches.route.id;
-  !(routeId != null) ?  true ? (0,react_router__WEBPACK_IMPORTED_MODULE_1__.UNSAFE_invariant)(false, "useFetcher can only be used on routes that contain a unique \"id\"") : 0 : void 0;
-  let [fetcherKey] = react__WEBPACK_IMPORTED_MODULE_0__.useState(() => String(++fetcherId));
-  let [Form] = react__WEBPACK_IMPORTED_MODULE_0__.useState(() => {
-    !routeId ?  true ? (0,react_router__WEBPACK_IMPORTED_MODULE_1__.UNSAFE_invariant)(false, "No routeId available for fetcher.Form()") : 0 : void 0;
-    return createFetcherForm(fetcherKey, routeId);
-  });
-  let [load] = react__WEBPACK_IMPORTED_MODULE_0__.useState(() => href => {
-    !router ?  true ? (0,react_router__WEBPACK_IMPORTED_MODULE_1__.UNSAFE_invariant)(false, "No router available for fetcher.load()") : 0 : void 0;
-    !routeId ?  true ? (0,react_router__WEBPACK_IMPORTED_MODULE_1__.UNSAFE_invariant)(false, "No routeId available for fetcher.load()") : 0 : void 0;
-    router.fetch(fetcherKey, routeId, href);
-  });
-  let submit = useSubmitFetcher(fetcherKey, routeId);
-  let fetcher = router.getFetcher(fetcherKey);
-  let fetcherWithComponents = react__WEBPACK_IMPORTED_MODULE_0__.useMemo(() => _extends({
-    Form,
-    submit,
-    load
-  }, fetcher), [fetcher, Form, submit, load]);
+  !fetcherData ?  true ? (0,react_router__WEBPACK_IMPORTED_MODULE_2__.UNSAFE_invariant)(false, "useFetcher must be used inside a FetchersContext") : 0 : void 0;
+  !route ?  true ? (0,react_router__WEBPACK_IMPORTED_MODULE_2__.UNSAFE_invariant)(false, "useFetcher must be used inside a RouteContext") : 0 : void 0;
+  !(routeId != null) ?  true ? (0,react_router__WEBPACK_IMPORTED_MODULE_2__.UNSAFE_invariant)(false, "useFetcher can only be used on routes that contain a unique \"id\"") : 0 : void 0;
+  // Fetcher key handling
+  // OK to call conditionally to feature detect `useId`
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  let defaultKey = useIdImpl ? useIdImpl() : "";
+  let [fetcherKey, setFetcherKey] = react__WEBPACK_IMPORTED_MODULE_0__.useState(key || defaultKey);
+  if (key && key !== fetcherKey) {
+    setFetcherKey(key);
+  } else if (!fetcherKey) {
+    // We will only fall through here when `useId` is not available
+    setFetcherKey(getUniqueFetcherId());
+  }
+  // Registration/cleanup
   react__WEBPACK_IMPORTED_MODULE_0__.useEffect(() => {
-    // Is this busted when the React team gets real weird and calls effects
-    // twice on mount?  We really just need to garbage collect here when this
-    // fetcher is no longer around.
+    router.getFetcher(fetcherKey);
     return () => {
-      if (!router) {
-        console.warn("No router available to clean up from useFetcher()");
-        return;
-      }
+      // Tell the router we've unmounted - if v7_fetcherPersist is enabled this
+      // will not delete immediately but instead queue up a delete after the
+      // fetcher returns to an `idle` state
       router.deleteFetcher(fetcherKey);
     };
   }, [router, fetcherKey]);
+  // Fetcher additions
+  let load = react__WEBPACK_IMPORTED_MODULE_0__.useCallback((href, opts) => {
+    !routeId ?  true ? (0,react_router__WEBPACK_IMPORTED_MODULE_2__.UNSAFE_invariant)(false, "No routeId available for fetcher.load()") : 0 : void 0;
+    router.fetch(fetcherKey, routeId, href, opts);
+  }, [fetcherKey, routeId, router]);
+  let submitImpl = useSubmit();
+  let submit = react__WEBPACK_IMPORTED_MODULE_0__.useCallback((target, opts) => {
+    submitImpl(target, _extends({}, opts, {
+      navigate: false,
+      fetcherKey
+    }));
+  }, [fetcherKey, submitImpl]);
+  let FetcherForm = react__WEBPACK_IMPORTED_MODULE_0__.useMemo(() => {
+    let FetcherForm = /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0__.forwardRef((props, ref) => {
+      return /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0__.createElement(Form, _extends({}, props, {
+        navigate: false,
+        fetcherKey: fetcherKey,
+        ref: ref
+      }));
+    });
+    if (true) {
+      FetcherForm.displayName = "fetcher.Form";
+    }
+    return FetcherForm;
+  }, [fetcherKey]);
+  // Exposed FetcherWithComponents
+  let fetcher = state.fetchers.get(fetcherKey) || react_router__WEBPACK_IMPORTED_MODULE_2__.IDLE_FETCHER;
+  let data = fetcherData.get(fetcherKey);
+  let fetcherWithComponents = react__WEBPACK_IMPORTED_MODULE_0__.useMemo(() => _extends({
+    Form: FetcherForm,
+    submit,
+    load
+  }, fetcher, {
+    data
+  }), [FetcherForm, submit, load, fetcher, data]);
   return fetcherWithComponents;
 }
 /**
@@ -38444,18 +40486,23 @@ function useFetcher() {
  */
 function useFetchers() {
   let state = useDataRouterState(DataRouterStateHook.UseFetchers);
-  return [...state.fetchers.values()];
+  return Array.from(state.fetchers.entries()).map(_ref11 => {
+    let [key, fetcher] = _ref11;
+    return _extends({}, fetcher, {
+      key
+    });
+  });
 }
 const SCROLL_RESTORATION_STORAGE_KEY = "react-router-scroll-positions";
 let savedScrollPositions = {};
 /**
  * When rendered inside a RouterProvider, will restore scroll positions on navigations
  */
-function useScrollRestoration(_temp3) {
+function useScrollRestoration(_temp4) {
   let {
     getKey,
     storageKey
-  } = _temp3 === void 0 ? {} : _temp3;
+  } = _temp4 === void 0 ? {} : _temp4;
   let {
     router
   } = useDataRouterContext(DataRouterHook.UseScrollRestoration);
@@ -38465,10 +40512,10 @@ function useScrollRestoration(_temp3) {
   } = useDataRouterState(DataRouterStateHook.UseScrollRestoration);
   let {
     basename
-  } = react__WEBPACK_IMPORTED_MODULE_0__.useContext(react_router__WEBPACK_IMPORTED_MODULE_2__.UNSAFE_NavigationContext);
-  let location = (0,react_router__WEBPACK_IMPORTED_MODULE_2__.useLocation)();
-  let matches = (0,react_router__WEBPACK_IMPORTED_MODULE_2__.useMatches)();
-  let navigation = (0,react_router__WEBPACK_IMPORTED_MODULE_2__.useNavigation)();
+  } = react__WEBPACK_IMPORTED_MODULE_0__.useContext(react_router__WEBPACK_IMPORTED_MODULE_3__.UNSAFE_NavigationContext);
+  let location = (0,react_router__WEBPACK_IMPORTED_MODULE_3__.useLocation)();
+  let matches = (0,react_router__WEBPACK_IMPORTED_MODULE_3__.useMatches)();
+  let navigation = (0,react_router__WEBPACK_IMPORTED_MODULE_3__.useNavigation)();
   // Trigger manual scroll restoration while we're active
   react__WEBPACK_IMPORTED_MODULE_0__.useEffect(() => {
     window.history.scrollRestoration = "manual";
@@ -38482,7 +40529,11 @@ function useScrollRestoration(_temp3) {
       let key = (getKey ? getKey(location, matches) : null) || location.key;
       savedScrollPositions[key] = window.scrollY;
     }
-    sessionStorage.setItem(storageKey || SCROLL_RESTORATION_STORAGE_KEY, JSON.stringify(savedScrollPositions));
+    try {
+      sessionStorage.setItem(storageKey || SCROLL_RESTORATION_STORAGE_KEY, JSON.stringify(savedScrollPositions));
+    } catch (error) {
+       true ? (0,react_router__WEBPACK_IMPORTED_MODULE_2__.UNSAFE_warning)(false, "Failed to save scroll positions in sessionStorage, <ScrollRestoration /> will not work properly (" + error + ").") : 0;
+    }
     window.history.scrollRestoration = "auto";
   }, [storageKey, getKey, navigation.state, location, matches]));
   // Read in any saved scroll locations
@@ -38503,7 +40554,7 @@ function useScrollRestoration(_temp3) {
     react__WEBPACK_IMPORTED_MODULE_0__.useLayoutEffect(() => {
       let getKeyWithoutBasename = getKey && basename !== "/" ? (location, matches) => getKey( // Strip the basename to match useLocation()
       _extends({}, location, {
-        pathname: (0,react_router__WEBPACK_IMPORTED_MODULE_1__.stripBasename)(location.pathname, basename) || location.pathname
+        pathname: (0,react_router__WEBPACK_IMPORTED_MODULE_2__.stripBasename)(location.pathname, basename) || location.pathname
       }), matches) : getKey;
       let disableScrollRestoration = router == null ? void 0 : router.enableScrollRestoration(savedScrollPositions, () => window.scrollY, getKeyWithoutBasename);
       return () => disableScrollRestoration && disableScrollRestoration();
@@ -38589,27 +40640,70 @@ function usePageHide(callback, options) {
  * very incorrectly in some cases) across browsers if user click addition
  * back/forward navigations while the confirm is open.  Use at your own risk.
  */
-function usePrompt(_ref8) {
+function usePrompt(_ref12) {
   let {
     when,
     message
-  } = _ref8;
-  let blocker = (0,react_router__WEBPACK_IMPORTED_MODULE_2__.unstable_useBlocker)(when);
-  react__WEBPACK_IMPORTED_MODULE_0__.useEffect(() => {
-    if (blocker.state === "blocked" && !when) {
-      blocker.reset();
-    }
-  }, [blocker, when]);
+  } = _ref12;
+  let blocker = (0,react_router__WEBPACK_IMPORTED_MODULE_3__.useBlocker)(when);
   react__WEBPACK_IMPORTED_MODULE_0__.useEffect(() => {
     if (blocker.state === "blocked") {
       let proceed = window.confirm(message);
       if (proceed) {
+        // This timeout is needed to avoid a weird "race" on POP navigations
+        // between the `window.history` revert navigation and the result of
+        // `window.confirm`
         setTimeout(blocker.proceed, 0);
       } else {
         blocker.reset();
       }
     }
   }, [blocker, message]);
+  react__WEBPACK_IMPORTED_MODULE_0__.useEffect(() => {
+    if (blocker.state === "blocked" && !when) {
+      blocker.reset();
+    }
+  }, [blocker, when]);
+}
+/**
+ * Return a boolean indicating if there is an active view transition to the
+ * given href.  You can use this value to render CSS classes or viewTransitionName
+ * styles onto your elements
+ *
+ * @param href The destination href
+ * @param [opts.relative] Relative routing type ("route" | "path")
+ */
+function useViewTransitionState(to, opts) {
+  if (opts === void 0) {
+    opts = {};
+  }
+  let vtContext = react__WEBPACK_IMPORTED_MODULE_0__.useContext(ViewTransitionContext);
+  !(vtContext != null) ?  true ? (0,react_router__WEBPACK_IMPORTED_MODULE_2__.UNSAFE_invariant)(false, "`unstable_useViewTransitionState` must be used within `react-router-dom`'s `RouterProvider`.  " + "Did you accidentally import `RouterProvider` from `react-router`?") : 0 : void 0;
+  let {
+    basename
+  } = useDataRouterContext(DataRouterHook.useViewTransitionState);
+  let path = (0,react_router__WEBPACK_IMPORTED_MODULE_3__.useResolvedPath)(to, {
+    relative: opts.relative
+  });
+  if (!vtContext.isTransitioning) {
+    return false;
+  }
+  let currentPath = (0,react_router__WEBPACK_IMPORTED_MODULE_2__.stripBasename)(vtContext.currentLocation.pathname, basename) || vtContext.currentLocation.pathname;
+  let nextPath = (0,react_router__WEBPACK_IMPORTED_MODULE_2__.stripBasename)(vtContext.nextLocation.pathname, basename) || vtContext.nextLocation.pathname;
+  // Transition is active if we're going to or coming from the indicated
+  // destination.  This ensures that other PUSH navigations that reverse
+  // an indicated transition apply.  I.e., on the list view you have:
+  //
+  //   <NavLink to="/details/1" unstable_viewTransition>
+  //
+  // If you click the breadcrumb back to the list view:
+  //
+  //   <NavLink to="/list" unstable_viewTransition>
+  //
+  // We should apply the transition because it's indicated as active going
+  // from /list -> /details/1 and therefore should be active on the reverse
+  // (even though this isn't strictly a POP reverse)
+  return (0,react_router__WEBPACK_IMPORTED_MODULE_2__.matchPath)(path.pathname, nextPath) != null || (0,react_router__WEBPACK_IMPORTED_MODULE_2__.matchPath)(path.pathname, currentPath) != null;
 }
 //#endregion
 
@@ -38657,12 +40751,13 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */   matchRoutes: () => (/* reexport safe */ _remix_run_router__WEBPACK_IMPORTED_MODULE_1__.matchRoutes),
 /* harmony export */   parsePath: () => (/* reexport safe */ _remix_run_router__WEBPACK_IMPORTED_MODULE_1__.parsePath),
 /* harmony export */   redirect: () => (/* reexport safe */ _remix_run_router__WEBPACK_IMPORTED_MODULE_1__.redirect),
+/* harmony export */   redirectDocument: () => (/* reexport safe */ _remix_run_router__WEBPACK_IMPORTED_MODULE_1__.redirectDocument),
 /* harmony export */   renderMatches: () => (/* binding */ renderMatches),
 /* harmony export */   resolvePath: () => (/* reexport safe */ _remix_run_router__WEBPACK_IMPORTED_MODULE_1__.resolvePath),
-/* harmony export */   unstable_useBlocker: () => (/* binding */ useBlocker),
 /* harmony export */   useActionData: () => (/* binding */ useActionData),
 /* harmony export */   useAsyncError: () => (/* binding */ useAsyncError),
 /* harmony export */   useAsyncValue: () => (/* binding */ useAsyncValue),
+/* harmony export */   useBlocker: () => (/* binding */ useBlocker),
 /* harmony export */   useHref: () => (/* binding */ useHref),
 /* harmony export */   useInRouterContext: () => (/* binding */ useInRouterContext),
 /* harmony export */   useLoaderData: () => (/* binding */ useLoaderData),
@@ -38685,7 +40780,7 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony import */ var react__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__webpack_require__.n(react__WEBPACK_IMPORTED_MODULE_0__);
 /* harmony import */ var _remix_run_router__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! @remix-run/router */ "./node_modules/@remix-run/router/dist/router.js");
 /**
- * React Router v6.14.2
+ * React Router v6.22.2
  *
  * Copyright (c) Remix Software Inc.
  *
@@ -38732,7 +40827,7 @@ if (true) {
  * A Navigator is a "location changer"; it's how you get to different locations.
  *
  * Every history instance conforms to the Navigator interface, but the
- * distinction is useful primarily when it comes to the low-level <Router> API
+ * distinction is useful primarily when it comes to the low-level `<Router>` API
  * where both the location and a navigator must be provided separately in order
  * to avoid "tearing" that may occur in a suspense-enabled app if the action
  * and/or location were to be read directly from the history instance.
@@ -38800,7 +40895,7 @@ function useHref(to, _temp) {
 }
 
 /**
- * Returns true if this component is a descendant of a <Router>.
+ * Returns true if this component is a descendant of a `<Router>`.
  *
  * @see https://reactrouter.com/hooks/use-in-router-context
  */
@@ -38838,7 +40933,7 @@ function useNavigationType() {
 /**
  * Returns a PathMatch object if the given pattern matches the current URL.
  * This is useful for components that need to know "active" state, e.g.
- * <NavLink>.
+ * `<NavLink>`.
  *
  * @see https://reactrouter.com/hooks/use-match
  */
@@ -38870,7 +40965,7 @@ function useIsomorphicLayoutEffect(cb) {
 }
 
 /**
- * Returns an imperative method for changing the location. Used by <Link>s, but
+ * Returns an imperative method for changing the location. Used by `<Link>`s, but
  * may also be used by other elements to change the location.
  *
  * @see https://reactrouter.com/hooks/use-navigate
@@ -38890,6 +40985,7 @@ function useNavigateUnstable() {
   let dataRouterContext = react__WEBPACK_IMPORTED_MODULE_0__.useContext(DataRouterContext);
   let {
     basename,
+    future,
     navigator
   } = react__WEBPACK_IMPORTED_MODULE_0__.useContext(NavigationContext);
   let {
@@ -38898,7 +40994,7 @@ function useNavigateUnstable() {
   let {
     pathname: locationPathname
   } = useLocation();
-  let routePathnamesJson = JSON.stringify((0,_remix_run_router__WEBPACK_IMPORTED_MODULE_1__.UNSAFE_getPathContributingMatches)(matches).map(match => match.pathnameBase));
+  let routePathnamesJson = JSON.stringify((0,_remix_run_router__WEBPACK_IMPORTED_MODULE_1__.UNSAFE_getResolveToMatches)(matches, future.v7_relativeSplatPath));
   let activeRef = react__WEBPACK_IMPORTED_MODULE_0__.useRef(false);
   useIsomorphicLayoutEffect(() => {
     activeRef.current = true;
@@ -38944,7 +41040,7 @@ function useOutletContext() {
 
 /**
  * Returns the element for the child route at this level of the route
- * hierarchy. Used internally by <Outlet> to render child routes.
+ * hierarchy. Used internally by `<Outlet>` to render child routes.
  *
  * @see https://reactrouter.com/hooks/use-outlet
  */
@@ -38982,19 +41078,22 @@ function useResolvedPath(to, _temp2) {
     relative
   } = _temp2 === void 0 ? {} : _temp2;
   let {
+    future
+  } = react__WEBPACK_IMPORTED_MODULE_0__.useContext(NavigationContext);
+  let {
     matches
   } = react__WEBPACK_IMPORTED_MODULE_0__.useContext(RouteContext);
   let {
     pathname: locationPathname
   } = useLocation();
-  let routePathnamesJson = JSON.stringify((0,_remix_run_router__WEBPACK_IMPORTED_MODULE_1__.UNSAFE_getPathContributingMatches)(matches).map(match => match.pathnameBase));
+  let routePathnamesJson = JSON.stringify((0,_remix_run_router__WEBPACK_IMPORTED_MODULE_1__.UNSAFE_getResolveToMatches)(matches, future.v7_relativeSplatPath));
   return react__WEBPACK_IMPORTED_MODULE_0__.useMemo(() => (0,_remix_run_router__WEBPACK_IMPORTED_MODULE_1__.resolveTo)(to, JSON.parse(routePathnamesJson), locationPathname, relative === "path"), [to, routePathnamesJson, locationPathname, relative]);
 }
 
 /**
  * Returns the element of the route that matched the current location, prepared
  * with the correct context to render the remainder of the route tree. Route
- * elements in the tree must render an <Outlet> to render their child route's
+ * elements in the tree must render an `<Outlet>` to render their child route's
  * element.
  *
  * @see https://reactrouter.com/hooks/use-routes
@@ -39004,7 +41103,7 @@ function useRoutes(routes, locationArg) {
 }
 
 // Internal implementation with accept optional param for RouterProvider usage
-function useRoutesImpl(routes, locationArg, dataRouterState) {
+function useRoutesImpl(routes, locationArg, dataRouterState, future) {
   !useInRouterContext() ?  true ? (0,_remix_run_router__WEBPACK_IMPORTED_MODULE_1__.UNSAFE_invariant)(false, // TODO: This error is probably because they somehow have 2 versions of the
   // router loaded. We can help them understand how to avoid that.
   "useRoutes() may be used only in the context of a <Router> component.") : 0 : void 0;
@@ -39054,13 +41153,32 @@ function useRoutesImpl(routes, locationArg, dataRouterState) {
     location = locationFromContext;
   }
   let pathname = location.pathname || "/";
-  let remainingPathname = parentPathnameBase === "/" ? pathname : pathname.slice(parentPathnameBase.length) || "/";
+  let remainingPathname = pathname;
+  if (parentPathnameBase !== "/") {
+    // Determine the remaining pathname by removing the # of URL segments the
+    // parentPathnameBase has, instead of removing based on character count.
+    // This is because we can't guarantee that incoming/outgoing encodings/
+    // decodings will match exactly.
+    // We decode paths before matching on a per-segment basis with
+    // decodeURIComponent(), but we re-encode pathnames via `new URL()` so they
+    // match what `window.location.pathname` would reflect.  Those don't 100%
+    // align when it comes to encoded URI characters such as % and &.
+    //
+    // So we may end up with:
+    //   pathname:           "/descendant/a%25b/match"
+    //   parentPathnameBase: "/descendant/a%b"
+    //
+    // And the direct substring removal approach won't work :/
+    let parentSegments = parentPathnameBase.replace(/^\//, "").split("/");
+    let segments = pathname.replace(/^\//, "").split("/");
+    remainingPathname = "/" + segments.slice(parentSegments.length).join("/");
+  }
   let matches = (0,_remix_run_router__WEBPACK_IMPORTED_MODULE_1__.matchRoutes)(routes, {
     pathname: remainingPathname
   });
   if (true) {
      true ? (0,_remix_run_router__WEBPACK_IMPORTED_MODULE_1__.UNSAFE_warning)(parentRoute || matches != null, "No routes matched location \"" + location.pathname + location.search + location.hash + "\" ") : 0;
-     true ? (0,_remix_run_router__WEBPACK_IMPORTED_MODULE_1__.UNSAFE_warning)(matches == null || matches[matches.length - 1].route.element !== undefined || matches[matches.length - 1].route.Component !== undefined, "Matched leaf route at location \"" + location.pathname + location.search + location.hash + "\" " + "does not have an element or Component. This means it will render an <Outlet /> with a " + "null value by default resulting in an \"empty\" page.") : 0;
+     true ? (0,_remix_run_router__WEBPACK_IMPORTED_MODULE_1__.UNSAFE_warning)(matches == null || matches[matches.length - 1].route.element !== undefined || matches[matches.length - 1].route.Component !== undefined || matches[matches.length - 1].route.lazy !== undefined, "Matched leaf route at location \"" + location.pathname + location.search + location.hash + "\" " + "does not have an element or Component. This means it will render an <Outlet /> with a " + "null value by default resulting in an \"empty\" page.") : 0;
   }
   let renderedMatches = _renderMatches(matches && matches.map(match => Object.assign({}, match, {
     params: Object.assign({}, parentParams, match.params),
@@ -39070,7 +41188,7 @@ function useRoutesImpl(routes, locationArg, dataRouterState) {
     pathnameBase: match.pathnameBase === "/" ? parentPathnameBase : (0,_remix_run_router__WEBPACK_IMPORTED_MODULE_1__.joinPaths)([parentPathnameBase,
     // Re-encode pathnames that were decoded inside matchRoutes
     navigator.encodeLocation ? navigator.encodeLocation(match.pathnameBase).pathname : match.pathnameBase])
-  })), parentMatches, dataRouterState);
+  })), parentMatches, dataRouterState, future);
 
   // When a user passes in a `locationArg`, the associated routes need to
   // be wrapped in a new `LocationContext.Provider` in order for `useLocation`
@@ -39158,7 +41276,7 @@ class RenderErrorBoundary extends react__WEBPACK_IMPORTED_MODULE_0__.Component {
     // this because the error provided from the app state may be cleared without
     // the location changing.
     return {
-      error: props.error || state.error,
+      error: props.error !== undefined ? props.error : state.error,
       location: state.location,
       revalidation: props.revalidation || state.revalidation
     };
@@ -39167,7 +41285,7 @@ class RenderErrorBoundary extends react__WEBPACK_IMPORTED_MODULE_0__.Component {
     console.error("React Router caught the following error during render", error, errorInfo);
   }
   render() {
-    return this.state.error ? /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0__.createElement(RouteContext.Provider, {
+    return this.state.error !== undefined ? /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0__.createElement(RouteContext.Provider, {
       value: this.props.routeContext
     }, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0__.createElement(RouteErrorContext.Provider, {
       value: this.state.error,
@@ -39192,13 +41310,16 @@ function RenderedRoute(_ref) {
     value: routeContext
   }, children);
 }
-function _renderMatches(matches, parentMatches, dataRouterState) {
+function _renderMatches(matches, parentMatches, dataRouterState, future) {
   var _dataRouterState2;
   if (parentMatches === void 0) {
     parentMatches = [];
   }
   if (dataRouterState === void 0) {
     dataRouterState = null;
+  }
+  if (future === void 0) {
+    future = null;
   }
   if (matches == null) {
     var _dataRouterState;
@@ -39219,18 +41340,66 @@ function _renderMatches(matches, parentMatches, dataRouterState) {
     !(errorIndex >= 0) ?  true ? (0,_remix_run_router__WEBPACK_IMPORTED_MODULE_1__.UNSAFE_invariant)(false, "Could not find a matching route for errors on route IDs: " + Object.keys(errors).join(",")) : 0 : void 0;
     renderedMatches = renderedMatches.slice(0, Math.min(renderedMatches.length, errorIndex + 1));
   }
+
+  // If we're in a partial hydration mode, detect if we need to render down to
+  // a given HydrateFallback while we load the rest of the hydration data
+  let renderFallback = false;
+  let fallbackIndex = -1;
+  if (dataRouterState && future && future.v7_partialHydration) {
+    for (let i = 0; i < renderedMatches.length; i++) {
+      let match = renderedMatches[i];
+      // Track the deepest fallback up until the first route without data
+      if (match.route.HydrateFallback || match.route.hydrateFallbackElement) {
+        fallbackIndex = i;
+      }
+      if (match.route.id) {
+        let {
+          loaderData,
+          errors
+        } = dataRouterState;
+        let needsToRunLoader = match.route.loader && loaderData[match.route.id] === undefined && (!errors || errors[match.route.id] === undefined);
+        if (match.route.lazy || needsToRunLoader) {
+          // We found the first route that's not ready to render (waiting on
+          // lazy, or has a loader that hasn't run yet).  Flag that we need to
+          // render a fallback and render up until the appropriate fallback
+          renderFallback = true;
+          if (fallbackIndex >= 0) {
+            renderedMatches = renderedMatches.slice(0, fallbackIndex + 1);
+          } else {
+            renderedMatches = [renderedMatches[0]];
+          }
+          break;
+        }
+      }
+    }
+  }
   return renderedMatches.reduceRight((outlet, match, index) => {
-    let error = match.route.id ? errors == null ? void 0 : errors[match.route.id] : null;
-    // Only data routers handle errors
+    // Only data routers handle errors/fallbacks
+    let error;
+    let shouldRenderHydrateFallback = false;
     let errorElement = null;
+    let hydrateFallbackElement = null;
     if (dataRouterState) {
+      error = errors && match.route.id ? errors[match.route.id] : undefined;
       errorElement = match.route.errorElement || defaultErrorElement;
+      if (renderFallback) {
+        if (fallbackIndex < 0 && index === 0) {
+          warningOnce("route-fallback", false, "No `HydrateFallback` element provided to render during initial hydration");
+          shouldRenderHydrateFallback = true;
+          hydrateFallbackElement = null;
+        } else if (fallbackIndex === index) {
+          shouldRenderHydrateFallback = true;
+          hydrateFallbackElement = match.route.hydrateFallbackElement || null;
+        }
+      }
     }
     let matches = parentMatches.concat(renderedMatches.slice(0, index + 1));
     let getChildren = () => {
       let children;
       if (error) {
         children = errorElement;
+      } else if (shouldRenderHydrateFallback) {
+        children = hydrateFallbackElement;
       } else if (match.route.Component) {
         // Note: This is a de-optimized path since React won't re-use the
         // ReactElement since it's identity changes with each new
@@ -39271,14 +41440,13 @@ function _renderMatches(matches, parentMatches, dataRouterState) {
     }) : getChildren();
   }, null);
 }
-var DataRouterHook;
-(function (DataRouterHook) {
+var DataRouterHook = /*#__PURE__*/function (DataRouterHook) {
   DataRouterHook["UseBlocker"] = "useBlocker";
   DataRouterHook["UseRevalidator"] = "useRevalidator";
   DataRouterHook["UseNavigateStable"] = "useNavigate";
-})(DataRouterHook || (DataRouterHook = {}));
-var DataRouterStateHook;
-(function (DataRouterStateHook) {
+  return DataRouterHook;
+}(DataRouterHook || {});
+var DataRouterStateHook = /*#__PURE__*/function (DataRouterStateHook) {
   DataRouterStateHook["UseBlocker"] = "useBlocker";
   DataRouterStateHook["UseLoaderData"] = "useLoaderData";
   DataRouterStateHook["UseActionData"] = "useActionData";
@@ -39289,7 +41457,8 @@ var DataRouterStateHook;
   DataRouterStateHook["UseRevalidator"] = "useRevalidator";
   DataRouterStateHook["UseNavigateStable"] = "useNavigate";
   DataRouterStateHook["UseRouteId"] = "useRouteId";
-})(DataRouterStateHook || (DataRouterStateHook = {}));
+  return DataRouterStateHook;
+}(DataRouterStateHook || {});
 function getDataRouterConsoleError(hookName) {
   return hookName + " must be used within a data router.  See https://reactrouter.com/routers/picking-a-router.";
 }
@@ -39340,10 +41509,10 @@ function useNavigation() {
 function useRevalidator() {
   let dataRouterContext = useDataRouterContext(DataRouterHook.UseRevalidator);
   let state = useDataRouterState(DataRouterStateHook.UseRevalidator);
-  return {
+  return react__WEBPACK_IMPORTED_MODULE_0__.useMemo(() => ({
     revalidate: dataRouterContext.router.revalidate,
     state: state.revalidation
-  };
+  }), [dataRouterContext.router.revalidate, state.revalidation]);
 }
 
 /**
@@ -39355,22 +41524,7 @@ function useMatches() {
     matches,
     loaderData
   } = useDataRouterState(DataRouterStateHook.UseMatches);
-  return react__WEBPACK_IMPORTED_MODULE_0__.useMemo(() => matches.map(match => {
-    let {
-      pathname,
-      params
-    } = match;
-    // Note: This structure matches that created by createUseMatchesMatch
-    // in the @remix-run/router , so if you change this please also change
-    // that :)  Eventually we'll DRY this up
-    return {
-      id: match.route.id,
-      pathname,
-      params,
-      data: loaderData[match.route.id],
-      handle: match.route.handle
-    };
-  }), [matches, loaderData]);
+  return react__WEBPACK_IMPORTED_MODULE_0__.useMemo(() => matches.map(m => (0,_remix_run_router__WEBPACK_IMPORTED_MODULE_1__.UNSAFE_convertRouteMatchToUiMatch)(m, loaderData)), [matches, loaderData]);
 }
 
 /**
@@ -39399,9 +41553,8 @@ function useRouteLoaderData(routeId) {
  */
 function useActionData() {
   let state = useDataRouterState(DataRouterStateHook.UseActionData);
-  let route = react__WEBPACK_IMPORTED_MODULE_0__.useContext(RouteContext);
-  !route ?  true ? (0,_remix_run_router__WEBPACK_IMPORTED_MODULE_1__.UNSAFE_invariant)(false, "useActionData must be used inside a RouteContext") : 0 : void 0;
-  return Object.values((state == null ? void 0 : state.actionData) || {})[0];
+  let routeId = useCurrentRouteId(DataRouterStateHook.UseLoaderData);
+  return state.actionData ? state.actionData[routeId] : undefined;
 }
 
 /**
@@ -39417,7 +41570,7 @@ function useRouteError() {
 
   // If this was a render error, we put it in a RouteError context inside
   // of RenderErrorBoundary
-  if (error) {
+  if (error !== undefined) {
     return error;
   }
 
@@ -39426,7 +41579,7 @@ function useRouteError() {
 }
 
 /**
- * Returns the happy-path data from the nearest ancestor <Await /> value
+ * Returns the happy-path data from the nearest ancestor `<Await />` value
  */
 function useAsyncValue() {
   let value = react__WEBPACK_IMPORTED_MODULE_0__.useContext(AwaitContext);
@@ -39434,7 +41587,7 @@ function useAsyncValue() {
 }
 
 /**
- * Returns the error from the nearest ancestor <Await /> value
+ * Returns the error from the nearest ancestor `<Await />` value
  */
 function useAsyncError() {
   let value = react__WEBPACK_IMPORTED_MODULE_0__.useContext(AwaitContext);
@@ -39578,16 +41731,26 @@ function RouterProvider(_ref) {
     router,
     future
   } = _ref;
-  // Need to use a layout effect here so we are subscribed early enough to
-  // pick up on any render-driven redirects/navigations (useEffect/<Navigate>)
   let [state, setStateImpl] = react__WEBPACK_IMPORTED_MODULE_0__.useState(router.state);
   let {
     v7_startTransition
   } = future || {};
   let setState = react__WEBPACK_IMPORTED_MODULE_0__.useCallback(newState => {
-    v7_startTransition && startTransitionImpl ? startTransitionImpl(() => setStateImpl(newState)) : setStateImpl(newState);
+    if (v7_startTransition && startTransitionImpl) {
+      startTransitionImpl(() => setStateImpl(newState));
+    } else {
+      setStateImpl(newState);
+    }
   }, [setStateImpl, v7_startTransition]);
+
+  // Need to use a layout effect here so we are subscribed early enough to
+  // pick up on any render-driven redirects/navigations (useEffect/<Navigate>)
   react__WEBPACK_IMPORTED_MODULE_0__.useLayoutEffect(() => router.subscribe(setState), [router, setState]);
+  react__WEBPACK_IMPORTED_MODULE_0__.useEffect(() => {
+     true ? (0,_remix_run_router__WEBPACK_IMPORTED_MODULE_1__.UNSAFE_warning)(fallbackElement == null || !router.future.v7_partialHydration, "`<RouterProvider fallbackElement>` is deprecated when using " + "`v7_partialHydration`, use a `HydrateFallback` component instead") : 0;
+    // Only log this once on initial mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   let navigator = react__WEBPACK_IMPORTED_MODULE_0__.useMemo(() => {
     return {
       createHref: router.createHref,
@@ -39626,21 +41789,26 @@ function RouterProvider(_ref) {
     basename: basename,
     location: state.location,
     navigationType: state.historyAction,
-    navigator: navigator
-  }, state.initialized ? /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0__.createElement(DataRoutes, {
+    navigator: navigator,
+    future: {
+      v7_relativeSplatPath: router.future.v7_relativeSplatPath
+    }
+  }, state.initialized || router.future.v7_partialHydration ? /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0__.createElement(DataRoutes, {
     routes: router.routes,
+    future: router.future,
     state: state
   }) : fallbackElement))), null);
 }
 function DataRoutes(_ref2) {
   let {
     routes,
+    future,
     state
   } = _ref2;
-  return useRoutesImpl(routes, undefined, state);
+  return useRoutesImpl(routes, undefined, state, future);
 }
 /**
- * A <Router> that stores all entries in memory.
+ * A `<Router>` that stores all entries in memory.
  *
  * @see https://reactrouter.com/router-components/memory-router
  */
@@ -39677,7 +41845,8 @@ function MemoryRouter(_ref3) {
     children: children,
     location: state.location,
     navigationType: state.action,
-    navigator: history
+    navigator: history,
+    future: future
   });
 }
 /**
@@ -39699,7 +41868,11 @@ function Navigate(_ref4) {
   !useInRouterContext() ?  true ? (0,_remix_run_router__WEBPACK_IMPORTED_MODULE_1__.UNSAFE_invariant)(false, // TODO: This error is probably because they somehow have 2 versions of
   // the router loaded. We can help them understand how to avoid that.
   "<Navigate> may be used only in the context of a <Router> component.") : 0 : void 0;
-   true ? (0,_remix_run_router__WEBPACK_IMPORTED_MODULE_1__.UNSAFE_warning)(!react__WEBPACK_IMPORTED_MODULE_0__.useContext(NavigationContext).static, "<Navigate> must not be used on the initial render in a <StaticRouter>. " + "This is a no-op, but you should modify your code so the <Navigate> is " + "only ever rendered in response to some user interaction or state change.") : 0;
+  let {
+    future,
+    static: isStatic
+  } = react__WEBPACK_IMPORTED_MODULE_0__.useContext(NavigationContext);
+   true ? (0,_remix_run_router__WEBPACK_IMPORTED_MODULE_1__.UNSAFE_warning)(!isStatic, "<Navigate> must not be used on the initial render in a <StaticRouter>. " + "This is a no-op, but you should modify your code so the <Navigate> is " + "only ever rendered in response to some user interaction or state change.") : 0;
   let {
     matches
   } = react__WEBPACK_IMPORTED_MODULE_0__.useContext(RouteContext);
@@ -39710,7 +41883,7 @@ function Navigate(_ref4) {
 
   // Resolve the path outside of the effect so that when effects run twice in
   // StrictMode they navigate to the same place
-  let path = (0,_remix_run_router__WEBPACK_IMPORTED_MODULE_1__.resolveTo)(to, (0,_remix_run_router__WEBPACK_IMPORTED_MODULE_1__.UNSAFE_getPathContributingMatches)(matches).map(match => match.pathnameBase), locationPathname, relative === "path");
+  let path = (0,_remix_run_router__WEBPACK_IMPORTED_MODULE_1__.resolveTo)(to, (0,_remix_run_router__WEBPACK_IMPORTED_MODULE_1__.UNSAFE_getResolveToMatches)(matches, future.v7_relativeSplatPath), locationPathname, relative === "path");
   let jsonPath = JSON.stringify(path);
   react__WEBPACK_IMPORTED_MODULE_0__.useEffect(() => navigate(JSON.parse(jsonPath), {
     replace,
@@ -39738,9 +41911,9 @@ function Route(_props) {
 /**
  * Provides location context for the rest of the app.
  *
- * Note: You usually won't render a <Router> directly. Instead, you'll render a
- * router that is more specific to your environment such as a <BrowserRouter>
- * in web browsers or a <StaticRouter> for server rendering.
+ * Note: You usually won't render a `<Router>` directly. Instead, you'll render a
+ * router that is more specific to your environment such as a `<BrowserRouter>`
+ * in web browsers or a `<StaticRouter>` for server rendering.
  *
  * @see https://reactrouter.com/router-components/router
  */
@@ -39751,7 +41924,8 @@ function Router(_ref5) {
     location: locationProp,
     navigationType = _remix_run_router__WEBPACK_IMPORTED_MODULE_1__.Action.Pop,
     navigator,
-    static: staticProp = false
+    static: staticProp = false,
+    future
   } = _ref5;
   !!useInRouterContext() ?  true ? (0,_remix_run_router__WEBPACK_IMPORTED_MODULE_1__.UNSAFE_invariant)(false, "You cannot render a <Router> inside another <Router>." + " You should never have more than one in your app.") : 0 : void 0;
 
@@ -39761,8 +41935,11 @@ function Router(_ref5) {
   let navigationContext = react__WEBPACK_IMPORTED_MODULE_0__.useMemo(() => ({
     basename,
     navigator,
-    static: staticProp
-  }), [basename, navigator, staticProp]);
+    static: staticProp,
+    future: _extends({
+      v7_relativeSplatPath: false
+    }, future)
+  }), [basename, future, navigator, staticProp]);
   if (typeof locationProp === "string") {
     locationProp = (0,_remix_run_router__WEBPACK_IMPORTED_MODULE_1__.parsePath)(locationProp);
   }
@@ -39801,7 +41978,7 @@ function Router(_ref5) {
   }));
 }
 /**
- * A container for a nested tree of <Route> elements that renders the branch
+ * A container for a nested tree of `<Route>` elements that renders the branch
  * that best matches the current location.
  *
  * @see https://reactrouter.com/components/routes
@@ -39828,12 +42005,12 @@ function Await(_ref7) {
     errorElement: errorElement
   }, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0__.createElement(ResolveAwait, null, children));
 }
-var AwaitRenderStatus;
-(function (AwaitRenderStatus) {
+var AwaitRenderStatus = /*#__PURE__*/function (AwaitRenderStatus) {
   AwaitRenderStatus[AwaitRenderStatus["pending"] = 0] = "pending";
   AwaitRenderStatus[AwaitRenderStatus["success"] = 1] = "success";
   AwaitRenderStatus[AwaitRenderStatus["error"] = 2] = "error";
-})(AwaitRenderStatus || (AwaitRenderStatus = {}));
+  return AwaitRenderStatus;
+}(AwaitRenderStatus || {});
 const neverSettledPromise = new Promise(() => {});
 class AwaitErrorBoundary extends react__WEBPACK_IMPORTED_MODULE_0__.Component {
   constructor(props) {
@@ -39925,7 +42102,7 @@ class AwaitErrorBoundary extends react__WEBPACK_IMPORTED_MODULE_0__.Component {
 
 /**
  * @private
- * Indirection to leverage useAsyncValue for a render-prop API on <Await>
+ * Indirection to leverage useAsyncValue for a render-prop API on `<Await>`
  */
 function ResolveAwait(_ref8) {
   let {
@@ -40012,6 +42189,17 @@ function mapRouteProperties(route) {
     Object.assign(updates, {
       element: /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0__.createElement(route.Component),
       Component: undefined
+    });
+  }
+  if (route.HydrateFallback) {
+    if (true) {
+      if (route.hydrateFallbackElement) {
+         true ? (0,_remix_run_router__WEBPACK_IMPORTED_MODULE_1__.UNSAFE_warning)(false, "You should not include both `HydrateFallback` and `hydrateFallbackElement` on your route - " + "`HydrateFallback` will be used.") : 0;
+      }
+    }
+    Object.assign(updates, {
+      hydrateFallbackElement: /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0__.createElement(route.HydrateFallback),
+      HydrateFallback: undefined
     });
   }
   if (route.ErrorBoundary) {
@@ -43689,6 +45877,114 @@ var update = _node_modules_style_loader_dist_runtime_injectStylesIntoStyleTag_js
 
 /***/ }),
 
+/***/ "./source/components/Chart/styles/chart.scss":
+/*!***************************************************!*\
+  !*** ./source/components/Chart/styles/chart.scss ***!
+  \***************************************************/
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   "default": () => (__WEBPACK_DEFAULT_EXPORT__)
+/* harmony export */ });
+/* harmony import */ var _node_modules_style_loader_dist_runtime_injectStylesIntoStyleTag_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! !../../../../node_modules/style-loader/dist/runtime/injectStylesIntoStyleTag.js */ "./node_modules/style-loader/dist/runtime/injectStylesIntoStyleTag.js");
+/* harmony import */ var _node_modules_style_loader_dist_runtime_injectStylesIntoStyleTag_js__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__webpack_require__.n(_node_modules_style_loader_dist_runtime_injectStylesIntoStyleTag_js__WEBPACK_IMPORTED_MODULE_0__);
+/* harmony import */ var _node_modules_style_loader_dist_runtime_styleDomAPI_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! !../../../../node_modules/style-loader/dist/runtime/styleDomAPI.js */ "./node_modules/style-loader/dist/runtime/styleDomAPI.js");
+/* harmony import */ var _node_modules_style_loader_dist_runtime_styleDomAPI_js__WEBPACK_IMPORTED_MODULE_1___default = /*#__PURE__*/__webpack_require__.n(_node_modules_style_loader_dist_runtime_styleDomAPI_js__WEBPACK_IMPORTED_MODULE_1__);
+/* harmony import */ var _node_modules_style_loader_dist_runtime_insertBySelector_js__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! !../../../../node_modules/style-loader/dist/runtime/insertBySelector.js */ "./node_modules/style-loader/dist/runtime/insertBySelector.js");
+/* harmony import */ var _node_modules_style_loader_dist_runtime_insertBySelector_js__WEBPACK_IMPORTED_MODULE_2___default = /*#__PURE__*/__webpack_require__.n(_node_modules_style_loader_dist_runtime_insertBySelector_js__WEBPACK_IMPORTED_MODULE_2__);
+/* harmony import */ var _node_modules_style_loader_dist_runtime_setAttributesWithoutAttributes_js__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(/*! !../../../../node_modules/style-loader/dist/runtime/setAttributesWithoutAttributes.js */ "./node_modules/style-loader/dist/runtime/setAttributesWithoutAttributes.js");
+/* harmony import */ var _node_modules_style_loader_dist_runtime_setAttributesWithoutAttributes_js__WEBPACK_IMPORTED_MODULE_3___default = /*#__PURE__*/__webpack_require__.n(_node_modules_style_loader_dist_runtime_setAttributesWithoutAttributes_js__WEBPACK_IMPORTED_MODULE_3__);
+/* harmony import */ var _node_modules_style_loader_dist_runtime_insertStyleElement_js__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(/*! !../../../../node_modules/style-loader/dist/runtime/insertStyleElement.js */ "./node_modules/style-loader/dist/runtime/insertStyleElement.js");
+/* harmony import */ var _node_modules_style_loader_dist_runtime_insertStyleElement_js__WEBPACK_IMPORTED_MODULE_4___default = /*#__PURE__*/__webpack_require__.n(_node_modules_style_loader_dist_runtime_insertStyleElement_js__WEBPACK_IMPORTED_MODULE_4__);
+/* harmony import */ var _node_modules_style_loader_dist_runtime_styleTagTransform_js__WEBPACK_IMPORTED_MODULE_5__ = __webpack_require__(/*! !../../../../node_modules/style-loader/dist/runtime/styleTagTransform.js */ "./node_modules/style-loader/dist/runtime/styleTagTransform.js");
+/* harmony import */ var _node_modules_style_loader_dist_runtime_styleTagTransform_js__WEBPACK_IMPORTED_MODULE_5___default = /*#__PURE__*/__webpack_require__.n(_node_modules_style_loader_dist_runtime_styleTagTransform_js__WEBPACK_IMPORTED_MODULE_5__);
+/* harmony import */ var _node_modules_css_loader_dist_cjs_js_node_modules_sass_loader_dist_cjs_js_chart_scss__WEBPACK_IMPORTED_MODULE_6__ = __webpack_require__(/*! !!../../../../node_modules/css-loader/dist/cjs.js!../../../../node_modules/sass-loader/dist/cjs.js!./chart.scss */ "./node_modules/css-loader/dist/cjs.js!./node_modules/sass-loader/dist/cjs.js!./source/components/Chart/styles/chart.scss");
+
+      
+      
+      
+      
+      
+      
+      
+      
+      
+
+var options = {};
+
+options.styleTagTransform = (_node_modules_style_loader_dist_runtime_styleTagTransform_js__WEBPACK_IMPORTED_MODULE_5___default());
+options.setAttributes = (_node_modules_style_loader_dist_runtime_setAttributesWithoutAttributes_js__WEBPACK_IMPORTED_MODULE_3___default());
+
+      options.insert = _node_modules_style_loader_dist_runtime_insertBySelector_js__WEBPACK_IMPORTED_MODULE_2___default().bind(null, "head");
+    
+options.domAPI = (_node_modules_style_loader_dist_runtime_styleDomAPI_js__WEBPACK_IMPORTED_MODULE_1___default());
+options.insertStyleElement = (_node_modules_style_loader_dist_runtime_insertStyleElement_js__WEBPACK_IMPORTED_MODULE_4___default());
+
+var update = _node_modules_style_loader_dist_runtime_injectStylesIntoStyleTag_js__WEBPACK_IMPORTED_MODULE_0___default()(_node_modules_css_loader_dist_cjs_js_node_modules_sass_loader_dist_cjs_js_chart_scss__WEBPACK_IMPORTED_MODULE_6__["default"], options);
+
+
+
+
+       /* harmony default export */ const __WEBPACK_DEFAULT_EXPORT__ = (_node_modules_css_loader_dist_cjs_js_node_modules_sass_loader_dist_cjs_js_chart_scss__WEBPACK_IMPORTED_MODULE_6__["default"] && _node_modules_css_loader_dist_cjs_js_node_modules_sass_loader_dist_cjs_js_chart_scss__WEBPACK_IMPORTED_MODULE_6__["default"].locals ? _node_modules_css_loader_dist_cjs_js_node_modules_sass_loader_dist_cjs_js_chart_scss__WEBPACK_IMPORTED_MODULE_6__["default"].locals : undefined);
+
+
+/***/ }),
+
+/***/ "./source/components/Chart/styles/sidebar.chart.scss":
+/*!***********************************************************!*\
+  !*** ./source/components/Chart/styles/sidebar.chart.scss ***!
+  \***********************************************************/
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   "default": () => (__WEBPACK_DEFAULT_EXPORT__)
+/* harmony export */ });
+/* harmony import */ var _node_modules_style_loader_dist_runtime_injectStylesIntoStyleTag_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! !../../../../node_modules/style-loader/dist/runtime/injectStylesIntoStyleTag.js */ "./node_modules/style-loader/dist/runtime/injectStylesIntoStyleTag.js");
+/* harmony import */ var _node_modules_style_loader_dist_runtime_injectStylesIntoStyleTag_js__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__webpack_require__.n(_node_modules_style_loader_dist_runtime_injectStylesIntoStyleTag_js__WEBPACK_IMPORTED_MODULE_0__);
+/* harmony import */ var _node_modules_style_loader_dist_runtime_styleDomAPI_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! !../../../../node_modules/style-loader/dist/runtime/styleDomAPI.js */ "./node_modules/style-loader/dist/runtime/styleDomAPI.js");
+/* harmony import */ var _node_modules_style_loader_dist_runtime_styleDomAPI_js__WEBPACK_IMPORTED_MODULE_1___default = /*#__PURE__*/__webpack_require__.n(_node_modules_style_loader_dist_runtime_styleDomAPI_js__WEBPACK_IMPORTED_MODULE_1__);
+/* harmony import */ var _node_modules_style_loader_dist_runtime_insertBySelector_js__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! !../../../../node_modules/style-loader/dist/runtime/insertBySelector.js */ "./node_modules/style-loader/dist/runtime/insertBySelector.js");
+/* harmony import */ var _node_modules_style_loader_dist_runtime_insertBySelector_js__WEBPACK_IMPORTED_MODULE_2___default = /*#__PURE__*/__webpack_require__.n(_node_modules_style_loader_dist_runtime_insertBySelector_js__WEBPACK_IMPORTED_MODULE_2__);
+/* harmony import */ var _node_modules_style_loader_dist_runtime_setAttributesWithoutAttributes_js__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(/*! !../../../../node_modules/style-loader/dist/runtime/setAttributesWithoutAttributes.js */ "./node_modules/style-loader/dist/runtime/setAttributesWithoutAttributes.js");
+/* harmony import */ var _node_modules_style_loader_dist_runtime_setAttributesWithoutAttributes_js__WEBPACK_IMPORTED_MODULE_3___default = /*#__PURE__*/__webpack_require__.n(_node_modules_style_loader_dist_runtime_setAttributesWithoutAttributes_js__WEBPACK_IMPORTED_MODULE_3__);
+/* harmony import */ var _node_modules_style_loader_dist_runtime_insertStyleElement_js__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(/*! !../../../../node_modules/style-loader/dist/runtime/insertStyleElement.js */ "./node_modules/style-loader/dist/runtime/insertStyleElement.js");
+/* harmony import */ var _node_modules_style_loader_dist_runtime_insertStyleElement_js__WEBPACK_IMPORTED_MODULE_4___default = /*#__PURE__*/__webpack_require__.n(_node_modules_style_loader_dist_runtime_insertStyleElement_js__WEBPACK_IMPORTED_MODULE_4__);
+/* harmony import */ var _node_modules_style_loader_dist_runtime_styleTagTransform_js__WEBPACK_IMPORTED_MODULE_5__ = __webpack_require__(/*! !../../../../node_modules/style-loader/dist/runtime/styleTagTransform.js */ "./node_modules/style-loader/dist/runtime/styleTagTransform.js");
+/* harmony import */ var _node_modules_style_loader_dist_runtime_styleTagTransform_js__WEBPACK_IMPORTED_MODULE_5___default = /*#__PURE__*/__webpack_require__.n(_node_modules_style_loader_dist_runtime_styleTagTransform_js__WEBPACK_IMPORTED_MODULE_5__);
+/* harmony import */ var _node_modules_css_loader_dist_cjs_js_node_modules_sass_loader_dist_cjs_js_sidebar_chart_scss__WEBPACK_IMPORTED_MODULE_6__ = __webpack_require__(/*! !!../../../../node_modules/css-loader/dist/cjs.js!../../../../node_modules/sass-loader/dist/cjs.js!./sidebar.chart.scss */ "./node_modules/css-loader/dist/cjs.js!./node_modules/sass-loader/dist/cjs.js!./source/components/Chart/styles/sidebar.chart.scss");
+
+      
+      
+      
+      
+      
+      
+      
+      
+      
+
+var options = {};
+
+options.styleTagTransform = (_node_modules_style_loader_dist_runtime_styleTagTransform_js__WEBPACK_IMPORTED_MODULE_5___default());
+options.setAttributes = (_node_modules_style_loader_dist_runtime_setAttributesWithoutAttributes_js__WEBPACK_IMPORTED_MODULE_3___default());
+
+      options.insert = _node_modules_style_loader_dist_runtime_insertBySelector_js__WEBPACK_IMPORTED_MODULE_2___default().bind(null, "head");
+    
+options.domAPI = (_node_modules_style_loader_dist_runtime_styleDomAPI_js__WEBPACK_IMPORTED_MODULE_1___default());
+options.insertStyleElement = (_node_modules_style_loader_dist_runtime_insertStyleElement_js__WEBPACK_IMPORTED_MODULE_4___default());
+
+var update = _node_modules_style_loader_dist_runtime_injectStylesIntoStyleTag_js__WEBPACK_IMPORTED_MODULE_0___default()(_node_modules_css_loader_dist_cjs_js_node_modules_sass_loader_dist_cjs_js_sidebar_chart_scss__WEBPACK_IMPORTED_MODULE_6__["default"], options);
+
+
+
+
+       /* harmony default export */ const __WEBPACK_DEFAULT_EXPORT__ = (_node_modules_css_loader_dist_cjs_js_node_modules_sass_loader_dist_cjs_js_sidebar_chart_scss__WEBPACK_IMPORTED_MODULE_6__["default"] && _node_modules_css_loader_dist_cjs_js_node_modules_sass_loader_dist_cjs_js_sidebar_chart_scss__WEBPACK_IMPORTED_MODULE_6__["default"].locals ? _node_modules_css_loader_dist_cjs_js_node_modules_sass_loader_dist_cjs_js_sidebar_chart_scss__WEBPACK_IMPORTED_MODULE_6__["default"].locals : undefined);
+
+
+/***/ }),
+
 /***/ "./source/components/Data-Table/styles/data-table.scss":
 /*!*************************************************************!*\
   !*** ./source/components/Data-Table/styles/data-table.scss ***!
@@ -43955,6 +46251,60 @@ var update = _node_modules_style_loader_dist_runtime_injectStylesIntoStyleTag_js
 
 
        /* harmony default export */ const __WEBPACK_DEFAULT_EXPORT__ = (_node_modules_css_loader_dist_cjs_js_node_modules_sass_loader_dist_cjs_js_tree_scss__WEBPACK_IMPORTED_MODULE_6__["default"] && _node_modules_css_loader_dist_cjs_js_node_modules_sass_loader_dist_cjs_js_tree_scss__WEBPACK_IMPORTED_MODULE_6__["default"].locals ? _node_modules_css_loader_dist_cjs_js_node_modules_sass_loader_dist_cjs_js_tree_scss__WEBPACK_IMPORTED_MODULE_6__["default"].locals : undefined);
+
+
+/***/ }),
+
+/***/ "./source/components/canvas.scss":
+/*!***************************************!*\
+  !*** ./source/components/canvas.scss ***!
+  \***************************************/
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   "default": () => (__WEBPACK_DEFAULT_EXPORT__)
+/* harmony export */ });
+/* harmony import */ var _node_modules_style_loader_dist_runtime_injectStylesIntoStyleTag_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! !../../node_modules/style-loader/dist/runtime/injectStylesIntoStyleTag.js */ "./node_modules/style-loader/dist/runtime/injectStylesIntoStyleTag.js");
+/* harmony import */ var _node_modules_style_loader_dist_runtime_injectStylesIntoStyleTag_js__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__webpack_require__.n(_node_modules_style_loader_dist_runtime_injectStylesIntoStyleTag_js__WEBPACK_IMPORTED_MODULE_0__);
+/* harmony import */ var _node_modules_style_loader_dist_runtime_styleDomAPI_js__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! !../../node_modules/style-loader/dist/runtime/styleDomAPI.js */ "./node_modules/style-loader/dist/runtime/styleDomAPI.js");
+/* harmony import */ var _node_modules_style_loader_dist_runtime_styleDomAPI_js__WEBPACK_IMPORTED_MODULE_1___default = /*#__PURE__*/__webpack_require__.n(_node_modules_style_loader_dist_runtime_styleDomAPI_js__WEBPACK_IMPORTED_MODULE_1__);
+/* harmony import */ var _node_modules_style_loader_dist_runtime_insertBySelector_js__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! !../../node_modules/style-loader/dist/runtime/insertBySelector.js */ "./node_modules/style-loader/dist/runtime/insertBySelector.js");
+/* harmony import */ var _node_modules_style_loader_dist_runtime_insertBySelector_js__WEBPACK_IMPORTED_MODULE_2___default = /*#__PURE__*/__webpack_require__.n(_node_modules_style_loader_dist_runtime_insertBySelector_js__WEBPACK_IMPORTED_MODULE_2__);
+/* harmony import */ var _node_modules_style_loader_dist_runtime_setAttributesWithoutAttributes_js__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(/*! !../../node_modules/style-loader/dist/runtime/setAttributesWithoutAttributes.js */ "./node_modules/style-loader/dist/runtime/setAttributesWithoutAttributes.js");
+/* harmony import */ var _node_modules_style_loader_dist_runtime_setAttributesWithoutAttributes_js__WEBPACK_IMPORTED_MODULE_3___default = /*#__PURE__*/__webpack_require__.n(_node_modules_style_loader_dist_runtime_setAttributesWithoutAttributes_js__WEBPACK_IMPORTED_MODULE_3__);
+/* harmony import */ var _node_modules_style_loader_dist_runtime_insertStyleElement_js__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(/*! !../../node_modules/style-loader/dist/runtime/insertStyleElement.js */ "./node_modules/style-loader/dist/runtime/insertStyleElement.js");
+/* harmony import */ var _node_modules_style_loader_dist_runtime_insertStyleElement_js__WEBPACK_IMPORTED_MODULE_4___default = /*#__PURE__*/__webpack_require__.n(_node_modules_style_loader_dist_runtime_insertStyleElement_js__WEBPACK_IMPORTED_MODULE_4__);
+/* harmony import */ var _node_modules_style_loader_dist_runtime_styleTagTransform_js__WEBPACK_IMPORTED_MODULE_5__ = __webpack_require__(/*! !../../node_modules/style-loader/dist/runtime/styleTagTransform.js */ "./node_modules/style-loader/dist/runtime/styleTagTransform.js");
+/* harmony import */ var _node_modules_style_loader_dist_runtime_styleTagTransform_js__WEBPACK_IMPORTED_MODULE_5___default = /*#__PURE__*/__webpack_require__.n(_node_modules_style_loader_dist_runtime_styleTagTransform_js__WEBPACK_IMPORTED_MODULE_5__);
+/* harmony import */ var _node_modules_css_loader_dist_cjs_js_node_modules_sass_loader_dist_cjs_js_canvas_scss__WEBPACK_IMPORTED_MODULE_6__ = __webpack_require__(/*! !!../../node_modules/css-loader/dist/cjs.js!../../node_modules/sass-loader/dist/cjs.js!./canvas.scss */ "./node_modules/css-loader/dist/cjs.js!./node_modules/sass-loader/dist/cjs.js!./source/components/canvas.scss");
+
+      
+      
+      
+      
+      
+      
+      
+      
+      
+
+var options = {};
+
+options.styleTagTransform = (_node_modules_style_loader_dist_runtime_styleTagTransform_js__WEBPACK_IMPORTED_MODULE_5___default());
+options.setAttributes = (_node_modules_style_loader_dist_runtime_setAttributesWithoutAttributes_js__WEBPACK_IMPORTED_MODULE_3___default());
+
+      options.insert = _node_modules_style_loader_dist_runtime_insertBySelector_js__WEBPACK_IMPORTED_MODULE_2___default().bind(null, "head");
+    
+options.domAPI = (_node_modules_style_loader_dist_runtime_styleDomAPI_js__WEBPACK_IMPORTED_MODULE_1___default());
+options.insertStyleElement = (_node_modules_style_loader_dist_runtime_insertStyleElement_js__WEBPACK_IMPORTED_MODULE_4___default());
+
+var update = _node_modules_style_loader_dist_runtime_injectStylesIntoStyleTag_js__WEBPACK_IMPORTED_MODULE_0___default()(_node_modules_css_loader_dist_cjs_js_node_modules_sass_loader_dist_cjs_js_canvas_scss__WEBPACK_IMPORTED_MODULE_6__["default"], options);
+
+
+
+
+       /* harmony default export */ const __WEBPACK_DEFAULT_EXPORT__ = (_node_modules_css_loader_dist_cjs_js_node_modules_sass_loader_dist_cjs_js_canvas_scss__WEBPACK_IMPORTED_MODULE_6__["default"] && _node_modules_css_loader_dist_cjs_js_node_modules_sass_loader_dist_cjs_js_canvas_scss__WEBPACK_IMPORTED_MODULE_6__["default"].locals ? _node_modules_css_loader_dist_cjs_js_node_modules_sass_loader_dist_cjs_js_canvas_scss__WEBPACK_IMPORTED_MODULE_6__["default"].locals : undefined);
 
 
 /***/ }),
@@ -44226,6 +46576,36 @@ module.exports = styleTagTransform;
 
 /***/ }),
 
+/***/ "./assets/fonts/IBMPlexSans-Light.ttf":
+/*!********************************************!*\
+  !*** ./assets/fonts/IBMPlexSans-Light.ttf ***!
+  \********************************************/
+/***/ ((module, __unused_webpack_exports, __webpack_require__) => {
+
+module.exports = __webpack_require__.p + "f6a1d8cf71c931e0b2aa.ttf";
+
+/***/ }),
+
+/***/ "./assets/fonts/IBMPlexSans-Medium.ttf":
+/*!*********************************************!*\
+  !*** ./assets/fonts/IBMPlexSans-Medium.ttf ***!
+  \*********************************************/
+/***/ ((module, __unused_webpack_exports, __webpack_require__) => {
+
+module.exports = __webpack_require__.p + "56fb541cbbc5462f1c33.ttf";
+
+/***/ }),
+
+/***/ "./assets/fonts/IBMPlexSans-Regular.ttf":
+/*!**********************************************!*\
+  !*** ./assets/fonts/IBMPlexSans-Regular.ttf ***!
+  \**********************************************/
+/***/ ((module, __unused_webpack_exports, __webpack_require__) => {
+
+module.exports = __webpack_require__.p + "d77342fdcbcb6b3ce1b5.ttf";
+
+/***/ }),
+
 /***/ "./assets/fonts/IcoMoon-Free.ttf":
 /*!***************************************!*\
   !*** ./assets/fonts/IcoMoon-Free.ttf ***!
@@ -44276,6 +46656,36 @@ module.exports = __webpack_require__.p + "34e46962590bff8eefe5.ttf";
 
 /***/ }),
 
+/***/ "./assets/images/close.svg":
+/*!*********************************!*\
+  !*** ./assets/images/close.svg ***!
+  \*********************************/
+/***/ ((module, __unused_webpack_exports, __webpack_require__) => {
+
+module.exports = __webpack_require__.p + "c0c3499054cef951f066.svg";
+
+/***/ }),
+
+/***/ "./assets/images/edit.svg":
+/*!********************************!*\
+  !*** ./assets/images/edit.svg ***!
+  \********************************/
+/***/ ((module, __unused_webpack_exports, __webpack_require__) => {
+
+module.exports = __webpack_require__.p + "2fa7679a98afb9e233c9.svg";
+
+/***/ }),
+
+/***/ "./assets/images/search.svg":
+/*!**********************************!*\
+  !*** ./assets/images/search.svg ***!
+  \**********************************/
+/***/ ((module, __unused_webpack_exports, __webpack_require__) => {
+
+module.exports = __webpack_require__.p + "c6f9f017e1809f71681e.svg";
+
+/***/ }),
+
 /***/ "./assets/images/space-1.jpg":
 /*!***********************************!*\
   !*** ./assets/images/space-1.jpg ***!
@@ -44283,6 +46693,46 @@ module.exports = __webpack_require__.p + "34e46962590bff8eefe5.ttf";
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
 module.exports = __webpack_require__.p + "0dee36ec105e13542938.jpg";
+
+/***/ }),
+
+/***/ "./assets/images/trash.svg":
+/*!*********************************!*\
+  !*** ./assets/images/trash.svg ***!
+  \*********************************/
+/***/ ((module, __unused_webpack_exports, __webpack_require__) => {
+
+module.exports = __webpack_require__.p + "1aa6ccb4487749cbcc2d.svg";
+
+/***/ }),
+
+/***/ "./assets/images/vector-1.svg":
+/*!************************************!*\
+  !*** ./assets/images/vector-1.svg ***!
+  \************************************/
+/***/ ((module, __unused_webpack_exports, __webpack_require__) => {
+
+module.exports = __webpack_require__.p + "56fa976e703c0925d47a.svg";
+
+/***/ }),
+
+/***/ "./assets/images/vector-2.svg":
+/*!************************************!*\
+  !*** ./assets/images/vector-2.svg ***!
+  \************************************/
+/***/ ((module, __unused_webpack_exports, __webpack_require__) => {
+
+module.exports = __webpack_require__.p + "d03362b863c2c37fd979.svg";
+
+/***/ }),
+
+/***/ "./assets/images/vector.svg":
+/*!**********************************!*\
+  !*** ./assets/images/vector.svg ***!
+  \**********************************/
+/***/ ((module, __unused_webpack_exports, __webpack_require__) => {
+
+module.exports = __webpack_require__.p + "655051ffa673f75b2248.svg";
 
 /***/ })
 
@@ -44328,6 +46778,36 @@ module.exports = __webpack_require__.p + "0dee36ec105e13542938.jpg";
 /******/ 				() => (module);
 /******/ 			__webpack_require__.d(getter, { a: getter });
 /******/ 			return getter;
+/******/ 		};
+/******/ 	})();
+/******/ 	
+/******/ 	/* webpack/runtime/create fake namespace object */
+/******/ 	(() => {
+/******/ 		var getProto = Object.getPrototypeOf ? (obj) => (Object.getPrototypeOf(obj)) : (obj) => (obj.__proto__);
+/******/ 		var leafPrototypes;
+/******/ 		// create a fake namespace object
+/******/ 		// mode & 1: value is a module id, require it
+/******/ 		// mode & 2: merge all properties of value into the ns
+/******/ 		// mode & 4: return value when already ns object
+/******/ 		// mode & 16: return value when it's Promise-like
+/******/ 		// mode & 8|1: behave like require
+/******/ 		__webpack_require__.t = function(value, mode) {
+/******/ 			if(mode & 1) value = this(value);
+/******/ 			if(mode & 8) return value;
+/******/ 			if(typeof value === 'object' && value) {
+/******/ 				if((mode & 4) && value.__esModule) return value;
+/******/ 				if((mode & 16) && typeof value.then === 'function') return value;
+/******/ 			}
+/******/ 			var ns = Object.create(null);
+/******/ 			__webpack_require__.r(ns);
+/******/ 			var def = {};
+/******/ 			leafPrototypes = leafPrototypes || [null, getProto({}), getProto([]), getProto(getProto)];
+/******/ 			for(var current = mode & 2 && value; typeof current == 'object' && !~leafPrototypes.indexOf(current); current = getProto(current)) {
+/******/ 				Object.getOwnPropertyNames(current).forEach((key) => (def[key] = () => (value[key])));
+/******/ 			}
+/******/ 			def['default'] = () => (value);
+/******/ 			__webpack_require__.d(ns, def);
+/******/ 			return ns;
 /******/ 		};
 /******/ 	})();
 /******/ 	
