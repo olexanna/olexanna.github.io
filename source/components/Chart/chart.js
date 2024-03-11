@@ -134,17 +134,6 @@ export const Chart = () => {
 	});
 
 	const widthRow = useRef("");
-	const textBlock = useRef("");
-
-	const getWidth=()=>{
-		let  getWidthBlock = widthRow.current.offsetWidth;
-
-		if( getWidthBlock < 1181 ){
-			 textBlock.current.color = "red!important";
-		}
-
-		console.log(getWidthBlock,"getWidth");
-	};
 
 
 	const getList = ( query, sortKey, sort, page ) => {
