@@ -88,6 +88,7 @@ const ChartReducer = ( state, [ type, data, data2 ], props ) => {
 			userText = "";
 			mailText = "";
 		}
+		console.log("resizeText" ,widthRow);
 
 		return{
 			...state,
