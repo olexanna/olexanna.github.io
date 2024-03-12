@@ -169,8 +169,15 @@ export const Chart = () => {
 		getList( state.search.query, state.search.sortKey, state.search.sort, state.search.page );
 	}, [ state.search.query, state.search.sortKey, state.search.sort, state.search.page ]);
 
+	const resizeWindow = () => {
+		dispatch([ "resizeText",{ widthRow: widthRow }]);
+	};
+
 	useEffect(() => {
-		window.addEventListener("resize",()=>{ dispatch([ "resizeText",{widthRow: widthRow}]) })
+		window.addEventListener( "resize", resizeWindow );
+		return () => {
+			window.removeEventListener( "resize", resizeWindow );
+		}
 	},[ widthRow ]);
 
 	let getPages = useMemo(() => {
